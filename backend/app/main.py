@@ -1,14 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from app.routes.analyze import router as analyze_router
+from app.routes.profile import router as profile_router
 from app.routes.edit import router as edit_router
 from app.config import UPLOAD_DIR
 
 app = FastAPI(
     title="Auto-Edit API",
-    description="AI-powered Instagram Reel editor that replicates your style",
-    version="1.0.0",
+    description="AI video editor that learns your Instagram style and edits new footage for you",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -19,13 +19,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(analyze_router)
+app.include_router(profile_router)
 app.include_router(edit_router)
 
-# Serve uploaded files (for video preview)
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "version": "2.0.0"}

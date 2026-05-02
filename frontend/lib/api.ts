@@ -1,186 +1,138 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-export interface JobStatus {
-  job_id: string;
+// ---- Profile ----
+
+export interface ProfileState {
   status: "processing" | "completed" | "error";
-  result?: AnalysisResult;
-  error?: string;
   step?: string;
-}
-
-export interface AnalysisResult {
-  job_id: string;
-  fingerprint: StyleFingerprint;
-  video_meta: VideoMeta;
-}
-
-export interface VideoMeta {
-  duration: number;
-  title: string;
-  uploader: string;
-  width: number;
-  height: number;
-  fps: number;
-}
-
-export interface StyleFingerprint {
-  meta: VideoMeta;
-  pacing: Pacing;
-  audio: Audio;
-  color: ColorAnalysis;
-  text: TextAnalysis;
-  motion: MotionAnalysis;
-  beat_sync_ratio: number;
-  scenes: Scene[];
-  interpretation: StyleInterpretation;
-  edit_recipe: EditRecipe;
-}
-
-export interface Pacing {
-  avg_cut_duration: number;
-  cut_count: number;
-  cuts_per_second: number;
-  rhythm: string;
-  pacing_variation: number;
-  fastest_cut: number;
-  slowest_cut: number;
-  cut_durations: number[];
-}
-
-export interface Audio {
-  bpm: number;
-  beat_times: number[];
-  beat_count: number;
-  avg_energy: number;
-  dynamic_range: number;
-  music_intensity: string;
-  frequency_profile: { bass_dominant: boolean; low: number; mid: number; high: number };
-}
-
-export interface ColorAnalysis {
-  avg_rgb: number[];
-  saturation: number;
-  brightness: number;
-  contrast: number;
-  warmth: number;
-  shadow_cast: string;
-  highlight_cast: string;
-  grade_style: string;
-  dominant_palette: string[];
-  skin_ratio: number;
-  eq_params: { brightness: number; contrast: number; saturation: number; r_gain: number; b_gain: number };
-}
-
-export interface TextAnalysis {
-  has_text: boolean;
-  text_count: number;
-  text_frequency: number;
-  dominant_placement: string | null;
-  text_timing: string;
-  sample_texts: string[];
-  style_hints: string[];
-}
-
-export interface MotionAnalysis {
-  avg_motion: number;
-  motion_style: string;
-}
-
-export interface Scene {
-  start_time: number;
-  end_time: number;
-  duration: number;
-}
-
-export interface StyleInterpretation {
-  style_name?: string;
-  vibe?: string;
-  content_type?: string;
-  creator_archetype?: string;
-  editing_traits?: string[];
-  color_story?: string;
-  pacing_description?: string;
-  text_strategy?: string;
-  beat_sync_analysis?: string;
-  signature_moves?: string[];
-  replication_instructions?: string[];
-  avoid?: string[];
+  progress?: number;
+  total?: number;
   error?: string;
+  reels_analyzed?: number;
+  profile?: StyleProfile;
 }
 
-export interface EditRecipe {
-  target_cut_duration: number;
-  cut_variation: number;
-  beat_sync: boolean;
-  color: { brightness: number; contrast: number; saturation: number; r_gain: number; b_gain: number };
-  grade_style: string;
-  add_text: boolean;
-  text_placement: string;
+export interface StyleProfile {
+  username: string;
+  reels_analyzed: number;
+  reels_failed: number;
+  synthesis: {
+    style_name?: string;
+    vibe?: string;
+    content_type?: string;
+    creator_archetype?: string;
+    pacing_pattern?: { description?: string; target_avg_cut_s?: number; beat_sync_strength?: number };
+    color_recipe?: { description?: string; grade_style?: string };
+    text_recipe?: { uses_text?: boolean; description?: string };
+    structure_template?: { description?: string; hook_style?: string; target_total_duration_s?: number };
+    signature_moves?: string[];
+    replication_instructions?: string[];
+  };
+  edit_recipe: {
+    target_cut_duration: number;
+    target_duration_s: number;
+    grade_style: string;
+    color: { brightness: number; contrast: number; saturation: number; r_gain: number; b_gain: number };
+  };
 }
 
-export async function startAnalysis(url: string): Promise<{ job_id: string }> {
-  const res = await fetch(`${API_BASE}/analyze`, {
+export async function connectProfile(instagramUrl: string): Promise<{ username: string }> {
+  const res = await fetch(`${API}/profile/connect`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ instagram_url: url }),
+    body: JSON.stringify({ instagram_url: instagramUrl }),
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to connect profile");
+  }
   return res.json();
 }
 
-export async function getAnalysisStatus(jobId: string): Promise<JobStatus> {
-  const res = await fetch(`${API_BASE}/analyze/${jobId}`);
-  if (!res.ok) throw new Error(await res.text());
+export async function getProfileState(username: string): Promise<ProfileState> {
+  const res = await fetch(`${API}/profile/${username}`);
+  if (!res.ok) throw new Error("Profile not found");
   return res.json();
+}
+
+// ---- Edit ----
+
+export interface EditState {
+  status: "processing" | "completed" | "error";
+  step?: string;
+  job_id?: string;
+  error?: string;
+  result?: {
+    mp4_filename: string;
+    fcpxml_filename: string;
+    cuts_applied: number;
+    output_duration_s: number;
+    grade_style: string;
+    script?: ScriptResult;
+  };
+}
+
+export interface ScriptResult {
+  spoken_script?: {
+    hook?: string;
+    body?: string;
+    cta?: string;
+    full_script?: string;
+    tone_notes?: string;
+  };
+  reel_caption?: string;
+  hashtag_suggestions?: string[];
+  caption_plan?: Array<{ timestamp_s: number; duration_s: number; text: string; placement: string }>;
 }
 
 export async function uploadFootage(file: File): Promise<{ job_id: string }> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${API_BASE}/edit/upload`, { method: "POST", body: form });
-  if (!res.ok) throw new Error(await res.text());
+  const res = await fetch(`${API}/edit/upload`, { method: "POST", body: form });
+  if (!res.ok) throw new Error("Upload failed");
   return res.json();
 }
 
-export async function applyEdit(styleJobId: string, footageJobId: string): Promise<{ job_id: string }> {
+export async function startEdit(username: string, footageJobId: string, topic: string): Promise<{ job_id: string }> {
   const form = new FormData();
-  form.append("style_job_id", styleJobId);
+  form.append("username", username);
   form.append("footage_job_id", footageJobId);
-  const res = await fetch(`${API_BASE}/edit/apply`, { method: "POST", body: form });
-  if (!res.ok) throw new Error(await res.text());
+  form.append("topic", topic);
+  const res = await fetch(`${API}/edit/start`, { method: "POST", body: form });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Edit failed to start");
+  }
   return res.json();
 }
 
-export async function getEditStatus(jobId: string): Promise<{ status: string; result?: { output_path: string }; error?: string }> {
-  const res = await fetch(`${API_BASE}/edit/status/${jobId}`);
-  if (!res.ok) throw new Error(await res.text());
+export async function getEditState(jobId: string): Promise<EditState> {
+  const res = await fetch(`${API}/edit/status/${jobId}`);
+  if (!res.ok) throw new Error("Job not found");
   return res.json();
 }
 
-export function getDownloadUrl(jobId: string): string {
-  return `${API_BASE}/edit/download/${jobId}`;
-}
+export function videoDownloadUrl(jobId: string) { return `${API}/edit/download/${jobId}/video`; }
+export function fcpxmlDownloadUrl(jobId: string) { return `${API}/edit/download/${jobId}/fcpxml`; }
+export function scriptDownloadUrl(jobId: string) { return `${API}/edit/download/${jobId}/script`; }
 
-export function pollJob<T>(
-  fetchFn: () => Promise<T & { status: string }>,
-  onUpdate: (data: T & { status: string }) => void,
-  interval = 2000
+// ---- Polling ----
+
+export function poll<T extends { status: string }>(
+  fn: () => Promise<T>,
+  onUpdate: (data: T) => void,
+  intervalMs = 2500,
 ): () => void {
-  let cancelled = false;
-
-  const poll = async () => {
-    while (!cancelled) {
+  let stopped = false;
+  (async () => {
+    while (!stopped) {
       try {
-        const data = await fetchFn();
+        const data = await fn();
         onUpdate(data);
         if (data.status === "completed" || data.status === "error") break;
-      } catch (e) {
-        console.error("Poll error:", e);
-      }
-      await new Promise((r) => setTimeout(r, interval));
+      } catch { /* swallow and retry */ }
+      await new Promise((r) => setTimeout(r, intervalMs));
     }
-  };
-
-  poll();
-  return () => { cancelled = true; };
+  })();
+  return () => { stopped = true; };
 }

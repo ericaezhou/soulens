@@ -1,0 +1,30 @@
+{
+  "username": "wannabechefmatt",
+  "reels_used": 1,
+  "synthesis": {
+    "error": "Error code: 401 - {'type': 'error', 'error': {'type': 'authentication_error', 'message': 'invalid x-api-key'}, 'request_id': 'req_011Cad9zByyYH84gpo2ceyGi'}"
+  },
+  "edit_recipe": {
+    "target_cut_duration": 1.181,
+    "cut_variation": 0.3,
+    "beat_sync_strength": 0.5,
+    "opening_style": "fast",
+    "closing_style": "hard_cut",
+    "hook_duration_s": 3.0,
+    "target_duration_s": 25.0,
+    "hook_style": "",
+    "color": {
+      "brightness": -0.025,
+      "contrast": 1.307,
+      "saturation": 0.89,
+      "r_gain": 1.097,
+      "b_gain": 1.0
+    },
+    "grade_style": "natural_balanced",
+    "add_text": false,
+    "text_placement": "lower_third",
+    "text_style": "minimal"
+  },
+  "reels_analyzed": 1,
+  "reels_failed": 0
+}

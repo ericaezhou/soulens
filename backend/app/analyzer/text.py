@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import pytesseract
 from PIL import Image
+from collections import Counter
 
 
 def detect_text_overlays(video_path: str) -> dict:
@@ -166,7 +167,6 @@ def _infer_text_style(detections: list[dict]) -> list[str]:
 
     placements = [d.get("placement") for d in detections if d.get("placement")]
     if placements:
-        from collections import Counter
         top_placement = Counter(placements).most_common(1)[0][0]
         hints.append(f"placement_{top_placement}")
 
