@@ -160,9 +160,10 @@ export interface ScriptResult {
   caption_plan?: Array<{ timestamp_s: number; duration_s: number; text: string; placement: string }>;
 }
 
-export async function uploadFootage(file: File): Promise<{ job_id: string }> {
+export async function uploadFootage(files: File | File[]): Promise<{ job_id: string; clip_count: number }> {
   const form = new FormData();
-  form.append("file", file);
+  const arr = Array.isArray(files) ? files : [files];
+  for (const f of arr) form.append("files", f);
   const res = await fetch(`${API}/edit/upload`, { method: "POST", body: form });
   if (!res.ok) throw new Error("Upload failed");
   return res.json();

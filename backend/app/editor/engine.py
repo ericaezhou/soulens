@@ -121,12 +121,9 @@ def _clips_to_cuts(candidate_clips: list[dict], recipe: dict) -> list[dict]:
         start = clip["start_time"]
         clip_dur = min(clip["duration"], remaining)
 
-        # Hook clips: shorten them to match the creator's hook pacing
-        if accumulated < hook_duration:
-            clip_dur = min(clip_dur, hook_duration / max(1, sum(
-                1 for c in candidate_clips
-                if c["start_time"] < hook_duration
-            )))
+        # First output clip = hook: cap it to hook_duration so it doesn't overstay
+        if i == 0:
+            clip_dur = min(clip_dur, hook_duration)
 
         clip_dur = max(0.2, clip_dur)
         end = start + clip_dur

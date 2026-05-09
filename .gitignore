@@ -1,0 +1,29 @@
+# ── User data (NEVER commit) ──────────────────────────────────────────────────
+# raw video footage uploaded by users
+backend/uploads/
+# SQLite database
+backend/data/auto_edit.db
+# synthesized style profiles and reel cache
+backend/data/profiles/
+
+# ── Environment / secrets ─────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+*.egg-info/
+dist/
+.pytest_cache/
+
+# ── Node / Next.js ────────────────────────────────────────────────────────────
+node_modules/
+.next/
+frontend/out/
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store

@@ -11,10 +11,10 @@ import numpy as np
 
 THRESHOLDS = {
     "min_duration_s": 0.8,       # shorter clips are likely mistakes or cuts
-    "min_blur": 60.0,             # Laplacian variance — below = blurry/out of focus
+    "min_blur": 50.0,             # Laplacian variance — below = blurry/out of focus
     "min_brightness": 20.0,       # mean pixel value — below = too dark
     "max_brightness": 235.0,      # above = overexposed/blown out
-    "max_motion_std": 12.0,       # optical flow std — above = camera shake
+    "max_motion_std": 20.0,       # optical flow std — raised for handheld phone footage
     "duplicate_corr": 0.97,       # histogram correlation — above = near-duplicate scene
 }
 

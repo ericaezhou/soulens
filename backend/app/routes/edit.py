@@ -17,17 +17,25 @@ router = APIRouter(prefix="/edit", tags=["edit"])
 
 
 @router.post("/upload")
-async def upload_footage(file: UploadFile = File(...)):
+async def upload_footage(files: list[UploadFile] = File(...)):
     job_id = str(uuid.uuid4())
     job_dir = UPLOAD_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
 
-    ext = Path(file.filename or "video.mp4").suffix or ".mp4"
-    footage_path = job_dir / f"footage{ext}"
-    footage_path.write_bytes(await file.read())
+    saved = []
+    for i, f in enumerate(files):
+        ext = Path(f.filename or "video.mp4").suffix or ".mp4"
+        p = job_dir / f"clip_{i:02d}{ext}"
+        p.write_bytes(await f.read())
+        saved.append(p)
 
-    _write_state(job_dir, {"status": "ready", "job_id": job_id, "footage_path": str(footage_path)})
-    return {"job_id": job_id, "status": "ready", "filename": file.filename}
+    if len(saved) == 1:
+        footage_path = saved[0]
+    else:
+        footage_path = await asyncio.to_thread(_concat_clips, saved, job_dir)
+
+    _write_state(job_dir, {"status": "ready", "job_id": job_id, "footage_path": str(footage_path), "clip_count": len(saved)})
+    return {"job_id": job_id, "status": "ready", "clip_count": len(saved)}
 
 
 @router.post("/start")
@@ -36,6 +44,7 @@ async def start_edit(
     username: str = Form(...),
     footage_job_id: str = Form(...),
     topic: str = Form(""),
+    skip_script: bool = Form(False),
 ):
     # Validate profile exists
     profile = load_profile(username)
@@ -188,6 +197,29 @@ async def _run_edit(job_id: str, footage_path: str, profile: dict, topic: str, e
 
     except Exception as e:
         _write_state(edit_dir, {"status": "error", "job_id": job_id, "error": str(e)})
+
+
+def _concat_clips(clips: list[Path], job_dir: Path) -> Path:
+    """Concatenate clips in order using ffmpeg concat demuxer. Falls back to re-encode if needed."""
+    list_path = job_dir / "clips.txt"
+    list_path.write_text("\n".join(f"file '{p.resolve()}'" for p in clips))
+
+    out_path = job_dir / "footage.mp4"
+    # Try stream-copy first (instant, no quality loss); -fflags +genpts fixes iPhone MOV timestamp offsets
+    cmd = ["ffmpeg", "-fflags", "+genpts", "-f", "concat", "-safe", "0", "-i", str(list_path), "-c", "copy", str(out_path), "-y"]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        # Fall back to re-encode (handles mismatched codecs/resolutions)
+        cmd = [
+            "ffmpeg", "-f", "concat", "-safe", "0", "-i", str(list_path),
+            "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+            "-c:a", "aac", "-b:a", "192k", str(out_path), "-y",
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to concatenate clips: {result.stderr[-500:]}")
+
+    return out_path
 
 
 def _write_state(job_dir: Path, state: dict):

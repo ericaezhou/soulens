@@ -1,6 +1,6 @@
 "use client";
 import { useState, useRef, useCallback } from "react";
-import { Upload, Loader2, Download, FileText, Film, Sparkles } from "lucide-react";
+import { Upload, Loader2, Download, FileText, Film, Sparkles, X } from "lucide-react";
 import {
   uploadFootage, startEdit, getEditState, poll,
   videoDownloadUrl, fcpxmlDownloadUrl, scriptDownloadUrl,
@@ -11,13 +11,37 @@ interface Props {
   profile: StyleProfile;
 }
 
-type Phase = "idle" | "uploading" | "processing" | "done" | "error";
+type Phase = "idle" | "staged" | "uploading" | "processing" | "done" | "error";
 
 const STEP_LABELS: Record<string, string> = {
+  rough_cut: "Running quality filter on clips...",
+  rough_cut_done: "Quality filter done, writing script...",
   analyzing_footage: "Analyzing your footage...",
   generating_script: "Writing script in your voice...",
   rendering: "Rendering + color grading...",
 };
+
+const VIDEO_EXTS = /\.(mp4|mov|avi|mkv|m4v|webm)$/i;
+
+function readDirFiles(dir: FileSystemDirectoryEntry): Promise<File[]> {
+  return new Promise((resolve) => {
+    const reader = dir.createReader();
+    const allEntries: FileSystemEntry[] = [];
+    const readBatch = () => {
+      reader.readEntries((batch) => {
+        if (!batch.length) {
+          const fileEntries = allEntries.filter(e => e.isFile) as FileSystemFileEntry[];
+          Promise.all(fileEntries.map(fe => new Promise<File>((res, rej) => fe.file(res, rej))))
+            .then(resolve);
+        } else {
+          allEntries.push(...batch);
+          readBatch();
+        }
+      }, () => resolve([]));
+    };
+    readBatch();
+  });
+}
 
 export default function EditPanel({ profile }: Props) {
   const [phase, setPhase] = useState<Phase>("idle");
@@ -27,14 +51,26 @@ export default function EditPanel({ profile }: Props) {
   const [error, setError] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [topic, setTopic] = useState("");
+  const [stagedFiles, setStagedFiles] = useState<File[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
+  const folderRef = useRef<HTMLInputElement>(null);
 
-  const handleFile = useCallback(async (file: File) => {
-    if (!file.type.startsWith("video/")) { setError("Please upload a video file."); return; }
-    setError(""); setPhase("uploading"); setStep("Uploading footage...");
+  const stageFiles = useCallback((incoming: FileList | File[]) => {
+    const arr = Array.from(incoming);
+    const videos = arr.filter(f => f.type.startsWith("video/") || VIDEO_EXTS.test(f.name));
+    if (!videos.length) { setError("No video files found. Please select MP4 or MOV files."); return; }
+    setError("");
+    setStagedFiles(videos);
+    setPhase("staged");
+  }, []);
+
+  const handleUpload = useCallback(async () => {
+    if (!stagedFiles.length) return;
+    setError(""); setPhase("uploading");
+    setStep(stagedFiles.length > 1 ? `Uploading ${stagedFiles.length} clips...` : "Uploading footage...");
 
     try {
-      const { job_id: footageId } = await uploadFootage(file);
+      const { job_id: footageId } = await uploadFootage(stagedFiles);
       setPhase("processing"); setStep("analyzing_footage");
       const { job_id: editId } = await startEdit(profile.username, footageId, topic);
       setEditJobId(editId);
@@ -51,12 +87,24 @@ export default function EditPanel({ profile }: Props) {
       setError(e instanceof Error ? e.message : "Something went wrong");
       setPhase("error");
     }
-  }, [profile.username, topic]);
+  }, [stagedFiles, profile.username, topic]);
 
-  const onDrop = useCallback((e: React.DragEvent) => {
+  const onDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault(); setIsDragging(false);
-    const file = e.dataTransfer.files[0]; if (file) handleFile(file);
-  }, [handleFile]);
+
+    const items = Array.from(e.dataTransfer.items);
+    const entries = items.map(i => i.webkitGetAsEntry()).filter(Boolean) as FileSystemEntry[];
+    const dirs = entries.filter(en => en.isDirectory) as FileSystemDirectoryEntry[];
+
+    if (dirs.length > 0) {
+      // Folder dropped: read top-level video files from all dropped folders
+      const files: File[] = (await Promise.all(dirs.map(readDirFiles))).flat();
+      if (files.length) stageFiles(files);
+      else setError("No video files found in that folder.");
+    } else if (e.dataTransfer.files.length) {
+      stageFiles(e.dataTransfer.files);
+    }
+  }, [stageFiles]);
 
   if (phase === "done" && result && editJobId) {
     return <EditResult result={result} jobId={editJobId} onReset={() => { setPhase("idle"); setResult(null); setEditJobId(null); }} />;
@@ -83,39 +131,103 @@ export default function EditPanel({ profile }: Props) {
     );
   }
 
+  // Staged: show clip list + confirm button
+  if (phase === "staged") {
+    return (
+      <div className="w-full max-w-lg mx-auto space-y-4">
+        <div className="glass rounded-2xl p-3">
+          <label className="block text-xs text-[var(--text-muted)] mb-1.5">What's this footage about? (optional)</label>
+          <input type="text" value={topic} onChange={(e) => setTopic(e.target.value)}
+            placeholder="e.g. restaurant review, morning routine"
+            className="w-full bg-transparent text-sm outline-none placeholder:text-[var(--text-muted)]" />
+        </div>
+
+        <div className="glass rounded-2xl p-4 space-y-2">
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">
+              {stagedFiles.length} clip{stagedFiles.length !== 1 ? "s" : ""} · will be concatenated in order
+            </p>
+            <button onClick={() => { setStagedFiles([]); setPhase("idle"); }}
+              className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
+              <X size={14} />
+            </button>
+          </div>
+          {stagedFiles.map((f, i) => (
+            <div key={i} className="flex items-center gap-2 text-sm py-1 border-b border-[var(--border)] last:border-0">
+              <span className="text-xs text-[var(--text-muted)] w-5 text-right">{i + 1}</span>
+              <span className="flex-1 truncate">{f.name}</span>
+              <span className="text-xs text-[var(--text-muted)] shrink-0">{(f.size / 1e6).toFixed(1)} MB</span>
+            </div>
+          ))}
+        </div>
+
+        {error && <div className="glass rounded-xl p-3 text-sm text-red-400 border border-red-500/20">{error}</div>}
+
+        <button onClick={handleUpload}
+          className="btn-primary w-full py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2">
+          <Film size={15} /> Edit {stagedFiles.length} clip{stagedFiles.length !== 1 ? "s" : ""} as @{profile.username}
+        </button>
+
+        <div className="flex justify-center gap-4">
+          <button onClick={() => fileRef.current?.click()}
+            className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
+            Change files
+          </button>
+          <button onClick={() => folderRef.current?.click()}
+            className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
+            Change folder
+          </button>
+        </div>
+        <input ref={fileRef} type="file" accept="video/*" multiple className="hidden"
+          onChange={(e) => { if (e.target.files?.length) stageFiles(e.target.files); }} />
+        <input ref={folderRef} type="file" className="hidden" {...{ webkitdirectory: "" }}
+          onChange={(e) => { if (e.target.files?.length) stageFiles(e.target.files); }} />
+      </div>
+    );
+  }
+
+  // Idle: drop zone
   return (
     <div className="w-full max-w-lg mx-auto space-y-4">
       <div className="glass rounded-2xl p-3">
         <label className="block text-xs text-[var(--text-muted)] mb-1.5">What's this footage about? (optional — helps the script)</label>
-        <input
-          type="text"
-          value={topic}
-          onChange={(e) => setTopic(e.target.value)}
+        <input type="text" value={topic} onChange={(e) => setTopic(e.target.value)}
           placeholder="e.g. morning routine, NYC trip, outfit of the day"
-          className="w-full bg-transparent text-sm outline-none placeholder:text-[var(--text-muted)]"
-        />
+          className="w-full bg-transparent text-sm outline-none placeholder:text-[var(--text-muted)]" />
       </div>
 
       <div
         onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={onDrop}
-        onClick={() => fileRef.current?.click()}
-        className="cursor-pointer rounded-2xl border-2 border-dashed p-10 text-center transition-all"
+        className="rounded-2xl border-2 border-dashed p-10 text-center transition-all"
         style={{
           borderColor: isDragging ? "var(--accent)" : "var(--border)",
           background: isDragging ? "rgba(var(--accent-rgb), 0.04)" : "transparent",
         }}
       >
-        <input ref={fileRef} type="file" accept="video/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
-        <div className="flex flex-col items-center gap-3">
+        <input ref={fileRef} type="file" accept="video/*" multiple className="hidden"
+          onChange={(e) => { if (e.target.files?.length) stageFiles(e.target.files); }} />
+        <input ref={folderRef} type="file" className="hidden" {...{ webkitdirectory: "" }}
+          onChange={(e) => { if (e.target.files?.length) stageFiles(e.target.files); }} />
+        <div className="flex flex-col items-center gap-4">
           <div className="w-12 h-12 rounded-2xl flex items-center justify-center"
             style={{ background: "rgba(var(--accent-rgb), 0.1)" }}>
             <Upload size={20} className="text-[var(--accent)]" />
           </div>
           <div>
-            <p className="text-sm font-medium">Drop raw footage here</p>
-            <p className="text-xs text-[var(--text-muted)] mt-1">MP4, MOV · up to 500MB</p>
+            <p className="text-sm font-medium">Drop files or a folder here</p>
+            <p className="text-xs text-[var(--text-muted)] mt-1">MP4, MOV · filming order preserved</p>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={() => fileRef.current?.click()}
+              className="glass px-4 py-1.5 rounded-lg text-xs font-medium hover:opacity-80 transition-opacity">
+              Select files
+            </button>
+            <button onClick={() => folderRef.current?.click()}
+              className="glass px-4 py-1.5 rounded-lg text-xs font-medium hover:opacity-80 transition-opacity">
+              Select folder
+            </button>
           </div>
         </div>
       </div>
