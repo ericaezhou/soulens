@@ -19,7 +19,7 @@ export default function ProfileConnect({ onSubmit, loading, error }: Props) {
   const [tab, setTab] = useState<"handle" | "paste">("handle");
   const [url, setUrl] = useState("");
   const [pasteText, setPasteText] = useState("");
-  const [pasteHandle, setPasteHandle] = useState("");
+  const [profileName, setProfileName] = useState("");
 
   const detectedUrls = parseReelUrls(pasteText);
 
@@ -88,14 +88,13 @@ export default function ProfileConnect({ onSubmit, loading, error }: Props) {
         </form>
       ) : (
         <div className="space-y-3">
-          <div className="relative flex items-center glass rounded-2xl p-1.5 gap-2">
-            <span className="pl-4 text-[var(--text-muted)] text-sm shrink-0">@</span>
+          <div className="glass rounded-2xl p-1.5 flex items-center gap-2">
             <input
               type="text"
-              value={pasteHandle}
-              onChange={(e) => setPasteHandle(e.target.value)}
-              placeholder="creator handle (e.g. wannabechefmatt)"
-              className="flex-1 bg-transparent text-[var(--text)] placeholder:text-[var(--text-muted)] outline-none text-sm py-3"
+              value={profileName}
+              onChange={(e) => setProfileName(e.target.value)}
+              placeholder="Profile name (e.g. Matt Kitchen)"
+              className="flex-1 bg-transparent text-[var(--text)] placeholder:text-[var(--text-muted)] outline-none text-sm px-3 py-2.5"
               disabled={loading}
             />
           </div>
@@ -104,21 +103,26 @@ export default function ProfileConnect({ onSubmit, loading, error }: Props) {
             <textarea
               value={pasteText}
               onChange={(e) => setPasteText(e.target.value)}
-              placeholder={"Paste Instagram reel links here, one per line:\nhttps://www.instagram.com/p/ABC123/\nhttps://www.instagram.com/reel/XYZ456/"}
+              placeholder={"https://www.instagram.com/p/ABC123/\nFor multiple links, seperate by comma"}
               rows={6}
               className="relative w-full glass rounded-2xl p-4 text-sm bg-transparent text-[var(--text)] placeholder:text-[var(--text-muted)] outline-none resize-none"
               disabled={loading}
             />
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs">
-              {detectedUrls.length > 0
-                ? <span style={{ color: "var(--accent)" }}>{detectedUrls.length} reel{detectedUrls.length !== 1 ? "s" : ""} detected</span>
-                : <span className="text-[var(--text-muted)]">Paste links from Instagram (copy link → paste here)</span>}
-            </span>
+          <div className="flex items-center justify-end">
+            {detectedUrls.length > 0 && (
+              <span className="text-xs mr-auto" style={{ color: "var(--accent)" }}>
+                {detectedUrls.length} reel{detectedUrls.length !== 1 ? "s" : ""} detected
+              </span>
+            )}
             <button
               disabled={detectedUrls.length === 0 || loading}
-              onClick={() => onSubmit(pasteHandle.trim() || "pasted_reels", detectedUrls)}
+              onClick={() => {
+                const slug = profileName.trim()
+                  ? profileName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_")
+                  : "my_profile";
+                onSubmit(slug, detectedUrls);
+              }}
               className="btn-primary flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
             >
               {loading
