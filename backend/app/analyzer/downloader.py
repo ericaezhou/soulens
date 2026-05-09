@@ -1,6 +1,6 @@
-import yt_dlp
 import uuid
 import subprocess
+import yt_dlp
 from pathlib import Path
 
 
@@ -10,14 +10,8 @@ def download_reel(url: str, output_dir: Path) -> dict:
 
     ydl_opts = {
         "outtmpl": str(output_dir / f"{video_id}_raw.%(ext)s"),
-        # Prefer H264 at 480p — enough for all analysis, ~70% less to download
-        "format": (
-            "bestvideo[vcodec^=avc][height<=480]+bestaudio[ext=m4a]"
-            "/bestvideo[vcodec^=avc][height<=480]+bestaudio"
-            "/bestvideo[height<=480]+bestaudio"
-            "/bestvideo[vcodec^=avc]+bestaudio"
-            "/best[height<=480]/best"
-        ),
+        # Single combined stream — no merging, no format enumeration overhead
+        "format": "best[height<=480]/best",
         "merge_output_format": "mp4",
         "quiet": True,
         "no_warnings": True,
@@ -26,30 +20,26 @@ def download_reel(url: str, output_dir: Path) -> dict:
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
 
-    # Find the downloaded raw file
-    downloaded = None
-    for f in output_dir.iterdir():
-        if f.stem == f"{video_id}_raw":
-            downloaded = f
-            break
-
+    downloaded = next(
+        (f for f in output_dir.iterdir() if f.stem == f"{video_id}_raw"),
+        None,
+    )
     if not downloaded or not downloaded.exists():
-        raise FileNotFoundError(f"Downloaded file not found for job {video_id}")
+        raise FileNotFoundError(f"Downloaded file not found for {video_id}")
 
-    # Re-encode to H264/AAC if needed (OpenCV requires H264)
+    # Re-encode to H264 only if needed (OpenCV requires H264)
     probe = subprocess.run(
         ["ffprobe", "-v", "quiet", "-select_streams", "v:0",
          "-show_entries", "stream=codec_name", "-of", "csv=p=0", str(downloaded)],
-        capture_output=True, text=True
+        capture_output=True, text=True,
     )
-    vcodec = probe.stdout.strip()
-    if vcodec != "h264":
+    if probe.stdout.strip() != "h264":
         subprocess.run(
             ["ffmpeg", "-i", str(downloaded),
-             "-vf", "scale=-2:480",          # downscale during re-encode
+             "-vf", "scale=-2:480",
              "-c:v", "libx264", "-preset", "ultrafast",
              "-crf", "28", "-c:a", "aac", "-b:a", "128k", "-y", str(final_path)],
-            check=True, capture_output=True
+            check=True, capture_output=True,
         )
         downloaded.unlink(missing_ok=True)
     else:
