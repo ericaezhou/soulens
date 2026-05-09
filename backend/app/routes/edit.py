@@ -11,6 +11,7 @@ from app.analyzer.profile_builder import load_profile
 from app.analyzer.video import detect_scenes
 from app.analyzer.scriptwriter import generate_script_and_captions
 from app.editor.engine import apply_style
+from app.editor.rough_cut import run_rough_cut
 
 router = APIRouter(prefix="/edit", tags=["edit"])
 
@@ -140,8 +141,8 @@ def _get_completed_state(job_id: str) -> dict:
 
 async def _run_edit(job_id: str, footage_path: str, profile: dict, topic: str, edit_dir: Path):
     try:
-        # Step 1: analyze the footage so Claude knows what's in it
-        _write_state(edit_dir, {"status": "processing", "job_id": job_id, "step": "analyzing_footage"})
+        # Step 1: detect scenes + universal rough cut (free, no API)
+        _write_state(edit_dir, {"status": "processing", "job_id": job_id, "step": "rough_cut"})
 
         probe_cmd = ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", footage_path]
         probe = subprocess.run(probe_cmd, capture_output=True, text=True)
@@ -150,6 +151,21 @@ async def _run_edit(job_id: str, footage_path: str, profile: dict, topic: str, e
             duration = float(json.loads(probe.stdout).get("format", {}).get("duration", 30))
 
         scenes = await asyncio.to_thread(detect_scenes, footage_path)
+        rough = await asyncio.to_thread(run_rough_cut, footage_path, scenes)
+
+        _write_state(edit_dir, {
+            "status": "processing", "job_id": job_id, "step": "rough_cut_done",
+            "rough_cut": {
+                "total_scenes": rough["total_scenes"],
+                "candidate_count": rough["candidate_count"],
+                "rejected_count": rough["rejected_count"],
+                "candidate_duration_s": rough["candidate_duration_s"],
+                "retention_pct": rough["retention_pct"],
+                "rejection_summary": rough["rejection_summary"],
+            },
+        })
+
+        candidate_clips = rough["candidates"]
 
         # Step 2: generate script + caption plan
         _write_state(edit_dir, {"status": "processing", "job_id": job_id, "step": "generating_script"})
@@ -158,16 +174,16 @@ async def _run_edit(job_id: str, footage_path: str, profile: dict, topic: str, e
         )
         caption_plan = script.get("caption_plan") if isinstance(script, dict) else None
 
-        # Step 3: render video + fcpxml
+        # Step 3: render video + fcpxml using rough cut candidates
         _write_state(edit_dir, {"status": "processing", "job_id": job_id, "step": "rendering"})
         edit_result = await asyncio.to_thread(
-            apply_style, footage_path, profile, edit_dir, caption_plan
+            apply_style, footage_path, profile, edit_dir, caption_plan, candidate_clips
         )
 
         _write_state(edit_dir, {
             "status": "completed",
             "job_id": job_id,
-            "result": {**edit_result, "script": script},
+            "result": {**edit_result, "script": script, "rough_cut": rough},
         })
 
     except Exception as e:

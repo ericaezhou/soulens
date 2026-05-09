@@ -102,20 +102,21 @@ def analyze_motion(video_path: str, scenes: list[dict]) -> dict:
 
 def extract_key_frames(video_path: str, duration: float, scenes: list[dict] | None = None) -> list[str]:
     """
-    Extract 8-10 frames at scene boundaries for Claude vision analysis.
-    Hook (first 3 cuts) + 5 evenly sampled body scenes + outro.
+    Extract 4 frames at scene boundaries for Claude vision analysis.
+    Hook (first cut) + 2 evenly sampled body scenes + outro.
     Falls back to fixed timestamps if no scene data.
+    Capped at 4 to keep synthesis API cost low (~$0.05 per profile).
     """
     if scenes and len(scenes) >= 3:
         starts = [s["start_time"] for s in scenes]
-        hook_times = starts[:3]
+        hook_times = starts[:1]
         outro_time = starts[-1]
-        body_starts = starts[3:-1]
-        step = max(1, len(body_starts) // 5)
-        body_times = body_starts[::step][:5]
+        body_starts = starts[1:-1]
+        step = max(1, len(body_starts) // 2)
+        body_times = body_starts[::step][:2]
         sample_times = hook_times + body_times + [outro_time]
     else:
-        sample_times = [0.5, duration * 0.2, duration * 0.4, duration * 0.6, duration * 0.85]
+        sample_times = [0.5, duration * 0.35, duration * 0.65, duration * 0.85]
 
     frames = []
     seen: set[float] = set()

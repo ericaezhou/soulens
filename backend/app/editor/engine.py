@@ -16,6 +16,7 @@ def apply_style(
     style_profile: dict,
     output_dir: Path,
     caption_plan: list[dict] | None = None,
+    candidate_clips: list[dict] | None = None,
 ) -> dict:
     recipe = style_profile.get("edit_recipe", {})
 
@@ -29,15 +30,19 @@ def apply_style(
 
     duration = probe["duration"]
 
-    # Generate cuts using Claude's recipe parameters
-    cuts = _generate_cuts(
-        total_duration=duration,
-        target_duration=recipe.get("target_duration_s", 25.0),
-        avg_cut=recipe.get("target_cut_duration", 2.0),
-        variation=recipe.get("cut_variation", 0.3),
-        beat_sync_strength=recipe.get("beat_sync_strength", 0.5),
-        hook_duration=recipe.get("hook_duration_s", 3.0),
-    )
+    if candidate_clips:
+        # Use real scene timestamps from rough cut Pass 1
+        cuts = _clips_to_cuts(candidate_clips, recipe)
+    else:
+        # Fallback: mathematical cuts from style parameters
+        cuts = _generate_cuts(
+            total_duration=duration,
+            target_duration=recipe.get("target_duration_s", 25.0),
+            avg_cut=recipe.get("target_cut_duration", 2.0),
+            variation=recipe.get("cut_variation", 0.3),
+            beat_sync_strength=recipe.get("beat_sync_strength", 0.5),
+            hook_duration=recipe.get("hook_duration_s", 3.0),
+        )
 
     color = recipe.get("color", {})
     color_filter = _build_color_filter(color)
@@ -95,6 +100,41 @@ def _probe_video(path: str) -> dict | None:
         fps = 30.0
 
     return {"duration": duration, "fps": fps, "width": int(video.get("width", 1080)), "height": int(video.get("height", 1920))}
+
+
+def _clips_to_cuts(candidate_clips: list[dict], recipe: dict) -> list[dict]:
+    """
+    Convert rough cut candidates into the cuts list ffmpeg needs.
+    Trims to target duration, applies hook pacing to the first few clips.
+    """
+    target_duration = recipe.get("target_duration_s", 25.0)
+    hook_duration = recipe.get("hook_duration_s", 3.0)
+
+    cuts = []
+    accumulated = 0.0
+
+    for i, clip in enumerate(candidate_clips):
+        remaining = target_duration - accumulated
+        if remaining <= 0.2:
+            break
+
+        start = clip["start_time"]
+        clip_dur = min(clip["duration"], remaining)
+
+        # Hook clips: shorten them to match the creator's hook pacing
+        if accumulated < hook_duration:
+            clip_dur = min(clip_dur, hook_duration / max(1, sum(
+                1 for c in candidate_clips
+                if c["start_time"] < hook_duration
+            )))
+
+        clip_dur = max(0.2, clip_dur)
+        end = start + clip_dur
+
+        cuts.append({"start": round(start, 3), "end": round(end, 3), "duration": round(clip_dur, 3)})
+        accumulated += clip_dur
+
+    return cuts
 
 
 def _generate_cuts(

@@ -75,14 +75,14 @@ def _call_claude(username: str, reels: list[dict]) -> dict:
         f"You have three inputs per reel:\n"
         f"1. Precise measurements (cut timing, color values, BPM, motion)\n"
         f"2. Speech transcript from Whisper audio transcription (what the creator says/captions)\n"
-        f"3. Key frames: first 3 scene cuts (hook sequence) + 5 body scenes sampled at cut boundaries + outro\n\n"
+        f"3. Key frames: hook (first scene cut) + 2 body scenes at cut boundaries + outro (4 total per reel)\n\n"
         f"MEASUREMENT DATA (includes speech_transcript per reel):\n{json.dumps(reels_summary, indent=2)}"
     )})
 
     # Attach frames grouped by reel
     has_frames = any(r.get("frames") for r in reels)
     if has_frames:
-        content.append({"type": "text", "text": "\n\nKEY FRAMES (hook cuts / body scene samples / outro — 8-10 per reel):"})
+        content.append({"type": "text", "text": "\n\nKEY FRAMES (hook / 2 body samples / outro — 4 per reel):"})
         for i, r in enumerate(reels):
             frames = r.get("frames", [])
             if not frames:
@@ -181,7 +181,7 @@ Respond with a JSON object (raw JSON, no markdown):
     try:
         response = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=8000,
+            max_tokens=4000,
             messages=[{"role": "user", "content": content}],
         )
         raw = response.content[0].text.strip()

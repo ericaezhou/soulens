@@ -1,0 +1,122 @@
+{
+  "username": "jina_test",
+  "reels_used": 7,
+  "synthesis": {
+    "style_name": "Nostalgic Food Diary",
+    "vibe": "Watching feels like a trusted food-obsessed friend pulling you into a dimly lit restaurant booth, whispering 'you have to try this' \u2014 warm, personal, and quietly electric.",
+    "content_type": "Restaurant discovery / food travel diary (not cooking tutorial \u2014 she visits and eats, does not cook)",
+    "creator_archetype": "The culturally rooted food explorer \u2014 a Korean-American woman who frames every restaurant visit through personal memory, heritage, and honest sensory reaction",
+    "hook_formula": "First 3 seconds always open with EITHER (a) the creator herself already mid-eating \u2014 chopsticks raised, food at mouth, genuine reaction face \u2014 OR (b) an arresting overhead/wide shot of the full spread already on the table. A single bold lower-third text card appears simultaneously, stating a superlative or exclusive claim about the restaurant ('The only place in the US that serves duck like this', 'Every Korean in Chicago knows this place', 'The hardest reservation we made in New York'). No intro, no greeting, no name drop \u2014 the hook IS the claim plus visual proof. Energy is calm-confident, not hype.",
+    "cooking_narrative": {
+      "description": "This is a restaurant review diary, not a cooking reel. The structure follows a consistent emotional arc: exclusive claim \u2192 personal backstory/cultural context \u2192 dish-by-dish reveal with sensory narration \u2192 honest verdict \u2192 soft CTA at the restaurant exterior or signage.",
+      "sequence": [
+        "Hook shot: creator eating OR full table spread with superlative text overlay",
+        "Personal context: why THIS place matters (family history, years since last visit, friend recommendation, hard reservation)",
+        "Restaurant establishing shot: exterior, interior ambiance, d\u00e9cor details",
+        "First dish reveal: close-up of the hero dish being presented or plated",
+        "Eating reaction shot: creator's face while chewing, genuine micro-expression",
+        "Secondary dishes: rapid close-up cuts of 2-4 additional dishes, each named in speech",
+        "Deep-dive on one standout item: lingering close-up + detailed sensory description in voiceover",
+        "Social/group moment: dining companions shown briefly, natural candid energy",
+        "Honest verdict: creator addresses camera directly or delivers opinion mid-bite",
+        "Outro: static shot of restaurant exterior sign or interior branding with engagement CTA ('Would you try X?')"
+      ],
+      "what_they_skip": "Any food preparation, kitchen footage, cooking process, recipe steps, mise en place, or behind-the-scenes kitchen access. She never shows how food is made. She also skips formal intros, on-camera greetings, and lengthy setup before the hook.",
+      "money_shot": "A close-up of the hero dish at peak visual appeal \u2014 noodles lifted high with sauce trailing (jajangmyeon pull), a whole duck cracked open with steam rising, a golden curry in a branded bowl \u2014 always shot from a low or eye-level angle, filling the frame edge to edge. It typically appears within the first 4-8 seconds as a cut within the hook sequence, then revisited mid-reel for the verbal deep-dive.",
+      "pacing_within_steps": "She lingers longest on the eating reaction shots and the verbal sensory description of the standout dish \u2014 often 2-5 second holds while she narrates in detail. The establishing restaurant shot also gets a slightly longer hold (2-4s) to let the ambiance register. Dish-to-dish transitions during the body are rapid (under 1.5s each). The outro CTA shot is static and held for 3-5 seconds."
+    },
+    "visual_identity": {
+      "shot_composition": "Predominantly two modes: (1) tight close-ups of food filling 60-80% of the frame, often shot from a slightly elevated front angle showing texture and depth; (2) medium shots of the creator from chest-up while eating, with the food foregrounded in the lower third creating a layered composition. Wide/establishing shots of restaurant interiors are used sparingly (1-2 per reel) and frame the full room. Almost no overhead/flat-lay shots \u2014 perspective is always the diner's POV, immersive not editorial.",
+      "camera_work": "Handheld throughout \u2014 subtle natural shake adds authenticity and diary feel. No gimbal-smooth motion, no dolly moves. Occasional very slight push-in or pull-out while holding on a dish. Camera is often held low (below table level) to shoot up at food for drama. Group/candid shots are casual and slightly unsteady.",
+      "lighting_style": "Ambient restaurant lighting embraced and enhanced \u2014 warm tungsten/incandescent tones dominate (golden-orange cast). Dark backgrounds are common, especially in evening/dinner settings. She does not add artificial fill light; the slightly underexposed, warm-shadows look is intentional. Brighter, higher-key shots appear only in daytime exterior or lunch restaurant settings.",
+      "transition_style": "Almost exclusively hard cuts \u2014 no wipes, no fades, no dissolves during the body. Cuts are clean and rhythmic. The only exception is the outro, which occasionally fades to or cuts to a static exterior/signage shot as a visual period at the end of the sentence."
+    },
+    "pacing_pattern": {
+      "description": "Pacing opens fast (hook cuts under 1.1s), settles into a medium-fast conversational rhythm in the body tied loosely to speech cadence rather than strict beat drops, then slows to a near-static hold for the outro CTA.",
+      "opening_cuts": "3-4 cuts in the first 3 seconds, each under 1.1 seconds \u2014 the hook sequence is the fastest moment in the entire reel, creating an immediate sense of energy before the pace settles.",
+      "body_rhythm": "Medium-fast, 1.2-2.2s per cut on average. Pacing follows her speech \u2014 cuts happen at natural breath/sentence breaks, not beat drops. When she narrates a specific dish, cuts slow slightly to let the visual register with the description. Rapid 4-6 cut bursts appear when cycling through multiple dishes.",
+      "closing_style": "Hard cut to restaurant exterior or interior branding shot. Creator poses or addresses camera briefly. A simple direct question text overlay appears ('Would you try X?'). Static hold of 3-5 seconds. Clean end \u2014 no fade to black, no music swell, no subscribe card overlay.",
+      "target_avg_cut_s": 1.75,
+      "target_variation": 0.54,
+      "beat_sync_strength": 0.49
+    },
+    "color_recipe": {
+      "description": "Consistently warm, slightly underexposed restaurant-ambient grade. Rich golden-amber shadows, elevated red channel for skin warmth and food richness, slight saturation boost to make food textures pop without looking oversaturated or artificial. Contrast is lifted moderately to give depth without crushing shadows. Blue channel is untouched \u2014 warmth comes entirely from red gain and white balance push, not blue reduction. The look feels like candlelight or vintage tungsten \u2014 intimate and appetite-stimulating.",
+      "grade_style": "golden_warm",
+      "eq_brightness": -0.084,
+      "eq_contrast": 1.32,
+      "eq_saturation": 1.18,
+      "eq_r_gain": 1.086,
+      "eq_b_gain": 1.0,
+      "consistent_across_reels": true
+    },
+    "text_recipe": {
+      "uses_text": true,
+      "placement": "lower_third",
+      "timing": "throughout",
+      "style": "mixed_case",
+      "description": "Text serves two distinct functions: (1) The hook text card \u2014 a single declarative superlative sentence about the restaurant \u2014 appears in the lower third from frame 0 and persists across the entire 3-4 shot hook sequence, burned in as a styled subtitle (white text, slight drop shadow or dark pill background for legibility). This is the most prominent text in the reel. (2) Throughout the body, auto-caption style subtitles track her speech closely \u2014 mixed case, functional, not decorative. Additional standalone text labels appear occasionally for dish names ('Sichuan cold noodles', 'Menu details in caption') and are placed center or lower-third. The outro always ends with a direct engagement question in text ('Would you try X?'). She does NOT use large decorative title cards, animated text, or emoji-heavy overlays."
+    },
+    "structure_template": {
+      "description": "A tight emotional arc: exclusive claim \u2192 personal stakes \u2192 sensory tour \u2192 honest verdict \u2192 CTA. Every reel follows this same five-beat structure regardless of restaurant type or city.",
+      "hook_duration_s": 4.0,
+      "hook_style": "Creator mid-eat OR full spread shot, paired with a lower-third superlative text claim. No greeting. No context yet. Pure visual + claim in the first breath.",
+      "body_structure": "Personal backstory paragraph (10-15s of speech, 4-6 cuts) \u2192 restaurant exterior/interior establishing shot (3-5s hold) \u2192 hero dish reveal and close-up (5-8s, 3-4 cuts) \u2192 eating reaction from creator (2-4s) \u2192 secondary dish rapid-fire tour (8-12s, 5-8 cuts, each dish named verbally) \u2192 deep-dive on favorite dish with detailed sensory voiceover (8-15s, slower cuts) \u2192 candid group/social moment (3-5s) \u2192 honest summary verdict (5-8s, creator addresses camera or delivers mid-bite opinion)",
+      "outro_style": "Hard cut to restaurant exterior sign or branded interior shot. Static 3-5s hold. Direct engagement CTA question in text overlay ('Would you try [restaurant name]?'). Creator may appear in frame smiling or gesturing. Clean cut to end \u2014 no outro music swell or subscribe animation.",
+      "target_total_duration_s": 75.0
+    },
+    "signature_moves": [
+      "The superlative hook claim: every reel opens with a bold declarative lower-third text stating why this specific place is unique/rare/exclusive \u2014 sets up the 'you need to know about this' premise before a single word is spoken",
+      "The nostalgic personal stake: within the first 15 seconds she always anchors the restaurant in personal memory or cultural identity (family visits, childhood foods, Korean-American heritage) \u2014 transforms a food review into an emotional story",
+      "The noodle/food pull shot: a close-up of noodles, meat, or a saucy dish being lifted high with trailing texture \u2014 always shot eye-level or slightly below, filling the entire frame, the single most visually satisfying cut in every reel",
+      "The honest mixed verdict: she consistently includes one specific criticism or caveat alongside praise ('absolutely not worth it', 'I was hesitant at first', 'the only downside is') \u2014 this is her trust-building move that makes recommendations feel credible",
+      "The restaurant CTA outro: every reel ends identically \u2014 static exterior or signage shot + 'Would you try [name]?' text \u2014 creating a consistent closing ritual that trains viewers to wait for and engage with the final frame",
+      "Speech-synced caption subtitles throughout the body: she auto-captions her own narration persistently, making the reel fully watchable on mute while maintaining spoken intimacy for viewers with sound on"
+    ],
+    "avoid": [
+      "On-camera greetings or self-introductions at the start \u2014 her identity emerges through the story, never through 'Hey guys, welcome back'",
+      "Bright, even, studio-style lighting or artificial fill light \u2014 the warm, slightly dark, ambient restaurant look is core to the intimate diary feel; clinical brightness destroys the mood",
+      "Cooking process footage, recipe breakdowns, or ingredient lists \u2014 she is a restaurant visitor, not a cook; any cooking tutorial framing would fundamentally misrepresent her content identity"
+    ],
+    "replication_instructions": [
+      "STEP 1 \u2014 IDENTIFY YOUR HOOK CLAIM: Before editing, write one sentence that states the most exclusive/superlative/surprising fact about the restaurant (e.g. 'The only place in the US that serves X', 'Been open since 19XX and nothing has changed'). This becomes your lower-third text card for frames 0-4s.",
+      "STEP 2 \u2014 SELECT YOUR HOOK SHOT: Find your single best clip of either (a) the creator mid-bite with genuine reaction, food prominent in foreground, OR (b) the full table spread at its most abundant. This is your opening frame. Place the hook text card over it immediately at 0:00.",
+      "STEP 3 \u2014 BUILD THE HOOK SEQUENCE (0:00-0:04): Cut 3-4 clips at under 1.1s each \u2014 alternate between creator eating reaction, food close-up, and one more food detail shot. Keep the hook text card persistent across ALL of these cuts. No audio narration needed here \u2014 music only.",
+      "STEP 4 \u2014 WRITE AND RECORD THE PERSONAL BACKSTORY (0:04-0:18): In voiceover or on-camera, deliver 2-4 sentences connecting this restaurant to personal memory, cultural significance, or how you discovered it. Cut 4-6 clips underneath at 1.5-2.5s each \u2014 mix creator talking-head and ambient restaurant interior shots.",
+      "STEP 5 \u2014 INSERT RESTAURANT ESTABLISHING SHOT (0:18-0:22): One 3-5 second static or slow push shot of the restaurant exterior OR interior ambiance. Let it breathe. No cuts here.",
+      "STEP 6 \u2014 HERO DISH REVEAL (0:22-0:30): Cut 3-4 tight close-up shots of the primary hero dish. Include the 'pull shot' \u2014 food lifted or scooped away from the plate, filling the frame, shot at eye level. Hold each clip 1.5-2.5s. Narrate the dish name and one key detail verbally.",
+      "STEP 7 \u2014 EATING REACTION (0:30-0:34): Cut to creator taking first bite. Hold 2-4 seconds on their face. Let the genuine micro-expression play out. Do not cut away too fast \u2014 this is an emotional anchor.",
+      "STEP 8 \u2014 SECONDARY DISH RAPID TOUR (0:34-0:50): Cycle through 3-5 additional dishes at 1.0-1.5s per clip. Name each dish verbally as you cut to it. Keep energy brisk. Mix close-ups and slight overhead angles for variety.",
+      "STEP 9 \u2014 DEEP-DIVE ON FAVORITE DISH (0:50-1:05): Slow the pacing to 2-3s per clip. Deliver your most detailed sensory description verbally ('the texture was X, the flavor was Y, I kept thinking about Z'). Include a second beauty shot of the standout dish here.",
+      "STEP 10 \u2014 HONEST VERDICT WITH ONE CAVEAT (1:05-1:12): Creator on camera or voiceover delivers overall opinion including one specific criticism or caveat. This is non-negotiable for credibility \u2014 do not skip the negative nuance.",
+      "STEP 11 \u2014 OUTRO CTA (1:12-1:20): Hard cut to static exterior sign or interior branding shot. Hold 3-5 seconds. Add lower-third or center text overlay: 'Would you try [Restaurant Name]?' Creator may appear in frame. Music fades or loops. Hard cut to end.",
+      "STEP 12 \u2014 COLOR GRADE: Apply golden warm grade \u2014 push r_gain to ~1.086, leave b_gain at 1.0, boost contrast to ~1.32, saturation to ~1.18, pull brightness down slightly to -0.084. The result should look like warm tungsten restaurant light \u2014 amber shadows, rich food tones, slight underexposure in dark areas.",
+      "STEP 13 \u2014 TEXT STYLING: Hook claim text \u2014 white, mixed case, readable font, dark semi-transparent pill or drop shadow background, lower third placement, persistent across hook sequence. Body subtitles \u2014 standard auto-caption style, white, lower third, tracking speech throughout. Outro CTA \u2014 same style as hook text. No decorative animations, no emoji in text overlays.",
+      "STEP 14 \u2014 MUSIC: Choose relaxed groove or mid-tempo background track (85-110 BPM for most content, up to 199 BPM for higher-energy venues). Music should underscore without overpowering \u2014 her voice narration is the primary audio. Do not hard-sync cuts to beat drops; sync cuts to her speech rhythm instead.",
+      "STEP 15 \u2014 FINAL PACING CHECK: Target avg cut of 1.75s overall. Hook sequence should be your fastest section (under 1.1s/cut). Body should settle at 1.5-2.5s/cut. Outro is your slowest (3-5s static hold). Total reel length should target 65-85 seconds."
+    ]
+  },
+  "edit_recipe": {
+    "target_cut_duration": 1.75,
+    "cut_variation": 0.54,
+    "beat_sync_strength": 0.49,
+    "opening_style": "3-4 cuts in the first 3 seconds, each under 1.1 seconds \u2014 the hook sequence is the fastest moment in the entire reel, creating an immediate sense of energy before the pace settles.",
+    "closing_style": "Hard cut to restaurant exterior or interior branding shot. Creator poses or addresses camera briefly. A simple direct question text overlay appears ('Would you try X?'). Static hold of 3-5 seconds. Clean end \u2014 no fade to black, no music swell, no subscribe card overlay.",
+    "hook_duration_s": 4.0,
+    "target_duration_s": 75.0,
+    "hook_style": "Creator mid-eat OR full spread shot, paired with a lower-third superlative text claim. No greeting. No context yet. Pure visual + claim in the first breath.",
+    "color": {
+      "brightness": -0.084,
+      "contrast": 1.32,
+      "saturation": 1.18,
+      "r_gain": 1.086,
+      "b_gain": 1.0
+    },
+    "grade_style": "golden_warm",
+    "add_text": true,
+    "text_placement": "lower_third",
+    "text_style": "mixed_case"
+  },
+  "reels_analyzed": 7,
+  "reels_failed": 1
+}
