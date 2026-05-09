@@ -1,9 +1,10 @@
 "use client";
-import { useState } from "react";
-import { ArrowRight, Loader2 } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { ArrowRight, Loader2, BookOpen, Pencil, Clock } from "lucide-react";
+import { getProfiles, updateProfileReels, SavedProfile } from "@/lib/api";
 
 interface Props {
-  onSubmit: (url: string, reelUrls?: string[]) => void;
+  onSubmit: (url: string, reelUrls?: string[], displayName?: string) => void;
   loading: boolean;
   error?: string;
 }
@@ -15,13 +16,72 @@ function parseReelUrls(text: string): string[] {
   return [...new Set(found)];
 }
 
+function slugify(name: string): string {
+  return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_") || "my_profile";
+}
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso + "Z").getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
 export default function ProfileConnect({ onSubmit, loading, error }: Props) {
-  const [tab, setTab] = useState<"handle" | "paste">("handle");
+  const [tab, setTab] = useState<"handle" | "paste" | "saved">("handle");
   const [url, setUrl] = useState("");
   const [pasteText, setPasteText] = useState("");
   const [profileName, setProfileName] = useState("");
+  const [conflict, setConflict] = useState<SavedProfile | null>(null);
+  const [savedProfiles, setSavedProfiles] = useState<SavedProfile[]>([]);
+  const [editingSlug, setEditingSlug] = useState<string | null>(null);
+  const conflictTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const detectedUrls = parseReelUrls(pasteText);
+
+  useEffect(() => {
+    if (tab === "saved") {
+      getProfiles().then(setSavedProfiles);
+    }
+  }, [tab]);
+
+  useEffect(() => {
+    if (conflictTimer.current) clearTimeout(conflictTimer.current);
+    setConflict(null);
+    if (!profileName.trim() || editingSlug) return;
+    const slug = slugify(profileName);
+    conflictTimer.current = setTimeout(async () => {
+      const profiles = await getProfiles();
+      const match = profiles.find((p) => p.slug === slug);
+      setConflict(match || null);
+    }, 400);
+  }, [profileName, editingSlug]);
+
+  function handleEditProfile(profile: SavedProfile) {
+    setEditingSlug(profile.slug);
+    setProfileName(profile.display_name);
+    setPasteText(profile.reel_urls.join("\n"));
+    setTab("paste");
+  }
+
+  async function handlePasteSubmit() {
+    const urls = parseReelUrls(pasteText);
+    if (!urls.length) return;
+    const slug = slugify(profileName);
+
+    if (editingSlug && editingSlug === slug) {
+      try {
+        await updateProfileReels(slug, urls);
+      } catch {
+        // backend will handle it via connect fallback
+      }
+    }
+    onSubmit(slug, urls, profileName.trim() || undefined);
+    setEditingSlug(null);
+  }
 
   return (
     <div className="w-full max-w-2xl mx-auto space-y-6">
@@ -39,29 +99,30 @@ export default function ProfileConnect({ onSubmit, loading, error }: Props) {
           <span>Our edit.</span>
         </h1>
         <p className="text-[var(--text-muted)] max-w-md mx-auto text-sm leading-relaxed">
-          Connect your Instagram profile or paste reel links. We'll analyze your editing style and build a personal Style Profile.
+          Connect your Instagram profile or paste reel links. We&apos;ll analyze your editing style and build a personal Style Profile.
         </p>
       </div>
 
       {/* Tabs */}
       <div className="glass rounded-2xl p-1.5 flex gap-1">
-        {(["handle", "paste"] as const).map((id) => (
+        {(["handle", "paste", "saved"] as const).map((id) => (
           <button
             key={id}
             onClick={() => setTab(id)}
-            className="flex-1 py-2 px-4 rounded-xl text-sm font-medium transition-all"
+            className="flex-1 py-2 px-3 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-1.5"
             style={tab === id ? {
               background: `linear-gradient(135deg, rgba(var(--accent-rgb), 0.15), rgba(var(--accent-2-rgb), 0.2))`,
               color: "var(--text)",
               border: "1px solid rgba(var(--accent-rgb), 0.3)",
             } : { color: "var(--text-muted)" }}
           >
-            {id === "handle" ? "Instagram handle" : "Paste reel links"}
+            {id === "saved" && <BookOpen size={12} />}
+            {id === "handle" ? "Instagram handle" : id === "paste" ? "Paste reel links" : "Saved profiles"}
           </button>
         ))}
       </div>
 
-      {tab === "handle" ? (
+      {tab === "handle" && (
         <form onSubmit={(e) => { e.preventDefault(); if (url.trim()) onSubmit(url.trim()); }}>
           <div className="relative group">
             <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-purple-500/20 to-pink-500/20 blur-xl opacity-0 group-focus-within:opacity-100 transition-opacity duration-500" />
@@ -86,8 +147,22 @@ export default function ProfileConnect({ onSubmit, loading, error }: Props) {
           </div>
           <p className="text-center text-xs text-[var(--text-muted)] mt-2">Profile must be public · Enter your Instagram handle</p>
         </form>
-      ) : (
+      )}
+
+      {tab === "paste" && (
         <div className="space-y-3">
+          {editingSlug && (
+            <div className="flex items-center gap-2 text-xs px-3 py-2 rounded-xl"
+              style={{ background: "rgba(var(--accent-rgb), 0.08)", color: "var(--accent)" }}>
+              <Pencil size={11} />
+              Editing &quot;{savedProfiles.find(p => p.slug === editingSlug)?.display_name || editingSlug}&quot; — update the URL list and re-analyze
+              <button className="ml-auto underline opacity-70 hover:opacity-100"
+                onClick={() => { setEditingSlug(null); setProfileName(""); setPasteText(""); }}>
+                Cancel
+              </button>
+            </div>
+          )}
+
           <div className="glass rounded-2xl p-1.5 flex items-center gap-2">
             <input
               type="text"
@@ -98,17 +173,42 @@ export default function ProfileConnect({ onSubmit, loading, error }: Props) {
               disabled={loading}
             />
           </div>
+
+          {conflict && !editingSlug && (
+            <div className="glass rounded-xl px-4 py-3 flex items-center justify-between gap-3"
+              style={{ border: "1px solid rgba(var(--accent-rgb), 0.25)" }}>
+              <p className="text-xs">
+                <span className="font-medium">&quot;{conflict.display_name}&quot;</span>
+                <span className="text-[var(--text-muted)]"> already exists · {conflict.reels_analyzed} reels · {timeAgo(conflict.updated_at)}</span>
+              </p>
+              <div className="flex gap-2 shrink-0">
+                <button
+                  onClick={() => onSubmit(conflict.slug)}
+                  className="text-xs px-3 py-1.5 rounded-lg font-medium"
+                  style={{ background: "rgba(var(--accent-rgb), 0.1)", color: "var(--accent)" }}>
+                  Load
+                </button>
+                <button
+                  onClick={() => handleEditProfile(conflict)}
+                  className="btn-primary text-xs px-3 py-1.5 rounded-lg font-medium">
+                  Edit
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="relative group">
             <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-purple-500/20 to-pink-500/20 blur-xl opacity-0 group-focus-within:opacity-100 transition-opacity duration-500" />
             <textarea
               value={pasteText}
               onChange={(e) => setPasteText(e.target.value)}
-              placeholder={"https://www.instagram.com/p/ABC123/\nFor multiple links, seperate by comma"}
+              placeholder={"https://www.instagram.com/p/ABC123/\nFor multiple links, separate by comma"}
               rows={6}
               className="relative w-full glass rounded-2xl p-4 text-sm bg-transparent text-[var(--text)] placeholder:text-[var(--text-muted)] outline-none resize-none"
               disabled={loading}
             />
           </div>
+
           <div className="flex items-center justify-end">
             {detectedUrls.length > 0 && (
               <span className="text-xs mr-auto" style={{ color: "var(--accent)" }}>
@@ -117,19 +217,51 @@ export default function ProfileConnect({ onSubmit, loading, error }: Props) {
             )}
             <button
               disabled={detectedUrls.length === 0 || loading}
-              onClick={() => {
-                const slug = profileName.trim()
-                  ? profileName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_")
-                  : "my_profile";
-                onSubmit(slug, detectedUrls);
-              }}
+              onClick={handlePasteSubmit}
               className="btn-primary flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
             >
               {loading
                 ? <Loader2 size={14} className="animate-spin" />
-                : <><span>Analyze {detectedUrls.length > 0 ? detectedUrls.length : ""} reels</span><ArrowRight size={14} /></>}
+                : <><span>{editingSlug ? "Re-analyze" : "Analyze"} {detectedUrls.length > 0 ? detectedUrls.length : ""}</span><ArrowRight size={14} /></>}
             </button>
           </div>
+        </div>
+      )}
+
+      {tab === "saved" && (
+        <div className="space-y-2">
+          {savedProfiles.length === 0 ? (
+            <div className="glass rounded-2xl p-8 text-center text-sm text-[var(--text-muted)]">
+              No saved profiles yet. Analyze some reels to get started.
+            </div>
+          ) : (
+            savedProfiles.map((p) => (
+              <div key={p.slug} className="glass rounded-2xl px-5 py-4 flex items-center gap-4">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold truncate">{p.display_name}</p>
+                  <p className="text-xs text-[var(--text-muted)] flex items-center gap-1.5 mt-0.5">
+                    <Clock size={10} />
+                    {p.reels_analyzed} reels · {timeAgo(p.updated_at)}
+                    {p.status === "processing" && <span style={{ color: "var(--accent)" }}> · building…</span>}
+                    {p.status === "error" && <span className="text-red-400"> · failed</span>}
+                  </p>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    onClick={() => handleEditProfile(p)}
+                    className="text-xs px-3 py-1.5 rounded-lg font-medium text-[var(--text-muted)] glass">
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => onSubmit(p.slug)}
+                    disabled={p.status !== "completed"}
+                    className="btn-primary text-xs px-3 py-1.5 rounded-lg font-medium disabled:opacity-40 disabled:cursor-not-allowed">
+                    Load
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       )}
 

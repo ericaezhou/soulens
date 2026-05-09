@@ -17,11 +17,11 @@ export default function Home() {
   const [error, setError] = useState("");
   const [connecting, setConnecting] = useState(false);
 
-  const handleConnect = useCallback(async (url: string, reelUrls?: string[]) => {
+  const handleConnect = useCallback(async (url: string, reelUrls?: string[], displayName?: string) => {
     setConnecting(true);
     setError("");
     try {
-      const { username: uname } = await connectProfile(url, reelUrls);
+      const { username: uname } = await connectProfile(url, reelUrls, displayName);
       setUsername(uname);
       setPhase("building");
       setConnecting(false);

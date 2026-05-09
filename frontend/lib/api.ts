@@ -1,5 +1,36 @@
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+// ---- Saved Profiles (DB) ----
+
+export interface SavedProfile {
+  slug: string;
+  display_name: string;
+  reel_urls: string[];
+  status: "processing" | "completed" | "error";
+  reels_analyzed: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function getProfiles(): Promise<SavedProfile[]> {
+  const res = await fetch(`${API}/profile`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function updateProfileReels(slug: string, reelUrls: string[]): Promise<{ username: string }> {
+  const res = await fetch(`${API}/profile/${slug}/reels`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reel_urls: reelUrls }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to update profile");
+  }
+  return res.json();
+}
+
 // ---- Profile ----
 
 export interface ProfileState {
@@ -51,12 +82,13 @@ export interface StyleProfile {
   };
 }
 
-export async function connectProfile(instagramUrl: string, reelUrls?: string[]): Promise<{ username: string }> {
+export async function connectProfile(instagramUrl: string, reelUrls?: string[], displayName?: string): Promise<{ username: string }> {
   const res = await fetch(`${API}/profile/connect`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       instagram_url: instagramUrl,
+      ...(displayName ? { display_name: displayName } : {}),
       ...(reelUrls && reelUrls.length > 0 ? { reel_urls: reelUrls } : {}),
     }),
   });
