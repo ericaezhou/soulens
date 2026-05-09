@@ -43,8 +43,8 @@ def _call_claude(username: str, reels: list[dict]) -> dict:
         p = r.get("pacing", {})
         a = r.get("audio", {})
         c = r.get("color", {})
-        t = r.get("text", {})
         mo = r.get("motion", {})
+        tr = r.get("transcript", {})
         reels_summary.append({
             "reel": i + 1,
             "duration_s": round(r.get("meta", {}).get("duration") or 0, 1),
@@ -62,10 +62,9 @@ def _call_claude(username: str, reels: list[dict]) -> dict:
             "contrast": round(c.get("contrast", 0), 2),
             "warmth": round(c.get("warmth", 0), 3),
             "eq_params": c.get("eq_params", {}),
-            "has_text": t.get("has_text", False),
-            "text_placement": t.get("dominant_placement"),
-            "text_hints": t.get("style_hints", []),
             "motion_style": mo.get("motion_style", ""),
+            "has_speech": tr.get("has_speech", False),
+            "speech_transcript": tr.get("transcript", "")[:400],
         })
 
     # Build multimodal content: measurements + key frames per reel
@@ -73,10 +72,11 @@ def _call_claude(username: str, reels: list[dict]) -> dict:
     content.append({"type": "text", "text": (
         f"You are a professional video editor building a definitive Style Profile for @{username} "
         f"by analyzing {len(reels)} of their Instagram Reels.\n\n"
-        f"You have two inputs per reel:\n"
+        f"You have three inputs per reel:\n"
         f"1. Precise measurements (cut timing, color values, BPM, motion)\n"
-        f"2. Key frames: hook (0.5s), body (40%), outro (85%), plus any text-overlay moment\n\n"
-        f"MEASUREMENT DATA:\n{json.dumps(reels_summary, indent=2)}"
+        f"2. Speech transcript from Whisper audio transcription (what the creator says/captions)\n"
+        f"3. Key frames: hook (0.5s), body (40%), outro (85%)\n\n"
+        f"MEASUREMENT DATA (includes speech_transcript per reel):\n{json.dumps(reels_summary, indent=2)}"
     )})
 
     # Attach frames grouped by reel
@@ -104,7 +104,8 @@ Look specifically at:
 - Their hook formula: exactly what's in frame 0-3s to grab attention
 - Their money shot: the climax/hero visual that makes people save the video
 - Pacing rhythm: does it match beat drops, speech, or action?
-- Text overlay design: placement, style, what info they caption vs. say out loud
+- Their verbal style: what they say, how they narrate (from speech_transcript), tone and vocabulary
+- Text vs. speech: do they caption text or just narrate verbally?
 
 Respond with a JSON object (raw JSON, no markdown):
 
@@ -157,7 +158,7 @@ Respond with a JSON object (raw JSON, no markdown):
     "placement": "<lower_third|upper_third|center|none>",
     "timing": "<throughout|early_hook|periodic|sparse|none>",
     "style": "<all_caps_bold|mixed_case|minimal|heavy>",
-    "description": "What info they put in text vs. say out loud"
+    "description": "What info they put in text vs. say out loud (inferred from frames and transcript)"
   }},
 
   "structure_template": {{

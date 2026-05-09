@@ -15,7 +15,7 @@ from app.analyzer.downloader import download_reel
 from app.analyzer.video import detect_scenes, analyze_pacing, analyze_motion, extract_key_frames
 from app.analyzer.audio import analyze_audio
 from app.analyzer.color import analyze_color_grade
-from app.analyzer.text import detect_text_overlays
+from app.analyzer.transcription import transcribe_audio
 from app.config import PROFILES_DIR, INSTAGRAM_SESSION_ID
 
 
@@ -91,12 +91,11 @@ def analyze_single_reel(reel_url: str, reel_dir: Path) -> dict | None:
         pacing = analyze_pacing(scenes, duration)
         audio = analyze_audio(path)
         color = analyze_color_grade(path, scenes)
-        text = detect_text_overlays(path)
         motion = analyze_motion(path, scenes)
+        transcript = transcribe_audio(path)
 
         # Extract frames before deleting — for Claude vision analysis
-        text_times = text.get("timestamps", [])
-        frames = extract_key_frames(path, duration, text_times or None)
+        frames = extract_key_frames(path, duration, None)
 
         # Delete video file immediately — we only need the analysis data
         Path(path).unlink(missing_ok=True)
@@ -116,8 +115,8 @@ def analyze_single_reel(reel_url: str, reel_dir: Path) -> dict | None:
             "pacing": pacing,
             "audio": audio,
             "color": color,
-            "text": text,
             "motion": motion,
+            "transcript": transcript,
             "beat_sync_ratio": round(beat_sync_ratio, 3),
             "scenes": scenes[:30],
             "frames": frames,
