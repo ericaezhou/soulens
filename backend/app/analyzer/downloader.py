@@ -1,6 +1,5 @@
 import yt_dlp
 import uuid
-import os
 import subprocess
 from pathlib import Path
 

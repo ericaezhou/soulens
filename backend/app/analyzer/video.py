@@ -1,7 +1,8 @@
 import cv2
+import base64
+import subprocess
 import numpy as np
 from scenedetect import detect, ContentDetector, AdaptiveDetector
-from pathlib import Path
 
 
 def detect_scenes(video_path: str) -> list[dict]:
@@ -97,6 +98,38 @@ def analyze_motion(video_path: str, scenes: list[dict]) -> dict:
         "avg_motion": round(avg_motion, 2),
         "motion_style": _classify_motion(avg_motion),
     }
+
+
+def extract_key_frames(video_path: str, duration: float, text_timestamps: list[float] | None = None) -> list[str]:
+    """
+    Extract 3-4 key frames as base64 JPEGs for Claude vision analysis.
+    Samples: hook (0.5s), body (40%), outro (85%), + first text-overlay moment.
+    """
+    sample_times = [0.5, duration * 0.4, duration * 0.85]
+
+    # Include one text-overlay frame if available
+    if text_timestamps:
+        for ts in text_timestamps:
+            if ts > 1.0:
+                sample_times.append(ts)
+                break
+
+    frames = []
+    for t in sample_times:
+        t = max(0.1, min(t, duration - 0.1))
+        cmd = [
+            "ffmpeg", "-ss", f"{t:.2f}", "-i", video_path,
+            "-frames:v", "1", "-vf", "scale=360:-2",
+            "-f", "image2", "-vcodec", "mjpeg", "pipe:1",
+        ]
+        try:
+            result = subprocess.run(cmd, capture_output=True, timeout=10)
+            if result.returncode == 0 and result.stdout:
+                frames.append(base64.b64encode(result.stdout).decode())
+        except Exception:
+            continue
+
+    return frames
 
 
 def _classify_motion(score: float) -> str:

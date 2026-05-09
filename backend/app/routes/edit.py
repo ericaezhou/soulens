@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 
 from app.config import UPLOAD_DIR
 from app.analyzer.profile_builder import load_profile
-from app.analyzer.video import detect_scenes, analyze_pacing
+from app.analyzer.video import detect_scenes
 from app.analyzer.scriptwriter import generate_script_and_captions
 from app.editor.engine import apply_style
 
@@ -150,7 +150,6 @@ async def _run_edit(job_id: str, footage_path: str, profile: dict, topic: str, e
             duration = float(json.loads(probe.stdout).get("format", {}).get("duration", 30))
 
         scenes = await asyncio.to_thread(detect_scenes, footage_path)
-        pacing = await asyncio.to_thread(analyze_pacing, scenes, duration)
 
         # Step 2: generate script + caption plan
         _write_state(edit_dir, {"status": "processing", "job_id": job_id, "step": "generating_script"})

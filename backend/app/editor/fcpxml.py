@@ -2,7 +2,6 @@
 Generates a Final Cut Pro XML (fcpxml 1.9) file from an edit plan.
 Opens in: Final Cut Pro, iMovie, DaVinci Resolve, Premiere Pro (via XML import).
 """
-import math
 from pathlib import Path
 from xml.etree.ElementTree import Element, SubElement, ElementTree, indent
 

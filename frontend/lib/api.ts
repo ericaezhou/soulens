@@ -21,11 +21,26 @@ export interface StyleProfile {
     vibe?: string;
     content_type?: string;
     creator_archetype?: string;
+    hook_formula?: string;
+    cooking_narrative?: {
+      description?: string;
+      sequence?: string[];
+      what_they_skip?: string;
+      money_shot?: string;
+      pacing_within_steps?: string;
+    };
+    visual_identity?: {
+      shot_composition?: string;
+      camera_work?: string;
+      lighting_style?: string;
+      transition_style?: string;
+    };
     pacing_pattern?: { description?: string; target_avg_cut_s?: number; beat_sync_strength?: number };
     color_recipe?: { description?: string; grade_style?: string };
     text_recipe?: { uses_text?: boolean; description?: string };
     structure_template?: { description?: string; hook_style?: string; target_total_duration_s?: number };
     signature_moves?: string[];
+    avoid?: string[];
     replication_instructions?: string[];
   };
   edit_recipe: {
@@ -36,11 +51,14 @@ export interface StyleProfile {
   };
 }
 
-export async function connectProfile(instagramUrl: string): Promise<{ username: string }> {
+export async function connectProfile(instagramUrl: string, reelUrls?: string[]): Promise<{ username: string }> {
   const res = await fetch(`${API}/profile/connect`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ instagram_url: instagramUrl }),
+    body: JSON.stringify({
+      instagram_url: instagramUrl,
+      ...(reelUrls && reelUrls.length > 0 ? { reel_urls: reelUrls } : {}),
+    }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));

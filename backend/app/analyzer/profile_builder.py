@@ -4,14 +4,13 @@ by analyzing all of them and synthesizing patterns across them.
 """
 import json
 import re
-import asyncio
 from pathlib import Path
 from typing import Callable
 
 import instaloader
 
 from app.analyzer.downloader import download_reel
-from app.analyzer.video import detect_scenes, analyze_pacing, analyze_motion
+from app.analyzer.video import detect_scenes, analyze_pacing, analyze_motion, extract_key_frames
 from app.analyzer.audio import analyze_audio
 from app.analyzer.color import analyze_color_grade
 from app.analyzer.text import detect_text_overlays
@@ -93,6 +92,10 @@ def analyze_single_reel(reel_url: str, reel_dir: Path) -> dict | None:
         text = detect_text_overlays(path)
         motion = analyze_motion(path, scenes)
 
+        # Extract frames before deleting — for Claude vision analysis
+        text_times = text.get("timestamps", [])
+        frames = extract_key_frames(path, duration, text_times or None)
+
         # Delete video file immediately — we only need the analysis data
         Path(path).unlink(missing_ok=True)
 
@@ -115,6 +118,7 @@ def analyze_single_reel(reel_url: str, reel_dir: Path) -> dict | None:
             "motion": motion,
             "beat_sync_ratio": round(beat_sync_ratio, 3),
             "scenes": scenes[:30],
+            "frames": frames,
         }
     except Exception as e:
         return {"url": reel_url, "error": str(e)}
@@ -127,14 +131,26 @@ def build_profile(
 ) -> dict:
     """
     Analyze all reels and return a raw profile dict (pre-Claude synthesis).
+    Each reel result is saved to disk immediately so a restart can resume.
     on_progress(completed, total, reel_url) called after each reel.
     """
     user_dir = PROFILES_DIR / username / "reels"
     user_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir = PROFILES_DIR / username / "reel_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
 
     reels_data = []
     for i, url in enumerate(reel_urls):
-        result = analyze_single_reel(url, user_dir)
+        # Use a stable filename derived from the URL shortcode
+        shortcode = url.rstrip("/").split("/")[-1]
+        cache_file = cache_dir / f"{shortcode}.json"
+
+        if cache_file.exists():
+            result = json.loads(cache_file.read_text())
+        else:
+            result = analyze_single_reel(url, user_dir)
+            cache_file.write_text(json.dumps(result))
+
         reels_data.append(result)
         if on_progress:
             on_progress(i + 1, len(reel_urls), url)

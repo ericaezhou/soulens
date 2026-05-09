@@ -5,7 +5,6 @@ Outputs: MP4 + FCPXml process file.
 import subprocess
 import json
 import uuid
-import os
 import numpy as np
 from pathlib import Path
 

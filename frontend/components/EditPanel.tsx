@@ -65,17 +65,18 @@ export default function EditPanel({ profile }: Props) {
   if (phase === "processing" || phase === "uploading") {
     return (
       <div className="w-full max-w-lg mx-auto glass rounded-2xl p-8 text-center space-y-4">
-        <div className="w-12 h-12 rounded-full mx-auto flex items-center justify-center" style={{ background: "rgba(192,132,252,0.1)" }}>
-          <Loader2 size={20} className="animate-spin text-purple-400" />
+        <div className="w-12 h-12 rounded-full mx-auto flex items-center justify-center"
+          style={{ background: "rgba(var(--accent-rgb), 0.1)" }}>
+          <Loader2 size={20} className="animate-spin text-[var(--accent)]" />
         </div>
         <div>
           <p className="text-sm font-medium">{STEP_LABELS[step] || step}</p>
           <p className="text-xs text-[var(--text-muted)] mt-1">Generating script, applying color grade, rendering...</p>
         </div>
         <div className="h-0.5 bg-[var(--surface-2)] rounded-full overflow-hidden">
-          <div className="h-full rounded-full animate-pulse" style={{
+          <div className="h-full rounded-full animate-pulse gradient-accent-h" style={{
             width: step === "rendering" ? "80%" : step === "generating_script" ? "55%" : "25%",
-            background: "linear-gradient(90deg, #c084fc, #f472b6)", transition: "width 1s ease",
+            transition: "width 1s ease",
           }} />
         </div>
       </div>
@@ -101,12 +102,16 @@ export default function EditPanel({ profile }: Props) {
         onDrop={onDrop}
         onClick={() => fileRef.current?.click()}
         className="cursor-pointer rounded-2xl border-2 border-dashed p-10 text-center transition-all"
-        style={{ borderColor: isDragging ? "#c084fc" : "var(--border)", background: isDragging ? "rgba(192,132,252,0.04)" : "transparent" }}
+        style={{
+          borderColor: isDragging ? "var(--accent)" : "var(--border)",
+          background: isDragging ? "rgba(var(--accent-rgb), 0.04)" : "transparent",
+        }}
       >
         <input ref={fileRef} type="file" accept="video/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
         <div className="flex flex-col items-center gap-3">
-          <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: "rgba(192,132,252,0.1)" }}>
-            <Upload size={20} className="text-purple-400" />
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center"
+            style={{ background: "rgba(var(--accent-rgb), 0.1)" }}>
+            <Upload size={20} className="text-[var(--accent)]" />
           </div>
           <div>
             <p className="text-sm font-medium">Drop raw footage here</p>
@@ -134,8 +139,9 @@ function EditResult({ result, jobId, onReset }: { result: NonNullable<EditState[
   return (
     <div className="w-full max-w-2xl mx-auto space-y-4">
       <div className="glass rounded-2xl p-6 glow text-center space-y-4">
-        <div className="w-14 h-14 rounded-full mx-auto flex items-center justify-center" style={{ background: "rgba(192,132,252,0.15)" }}>
-          <Sparkles size={22} className="text-purple-400" />
+        <div className="w-14 h-14 rounded-full mx-auto flex items-center justify-center"
+          style={{ background: "rgba(var(--accent-rgb), 0.15)" }}>
+          <Sparkles size={22} className="text-[var(--accent)]" />
         </div>
         <div>
           <p className="text-lg font-bold">Your edit is ready</p>
@@ -146,8 +152,7 @@ function EditResult({ result, jobId, onReset }: { result: NonNullable<EditState[
 
         <div className="flex flex-col sm:flex-row gap-2 justify-center">
           <a href={videoDownloadUrl(jobId)} download
-            className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium text-white"
-            style={{ background: "linear-gradient(135deg, #c084fc, #f472b6)" }}>
+            className="btn-primary flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium">
             <Film size={15} /> Download MP4
           </a>
           <a href={fcpxmlDownloadUrl(jobId)} download
@@ -171,13 +176,13 @@ function EditResult({ result, jobId, onReset }: { result: NonNullable<EditState[
             { label: "CTA", text: script.cta },
           ].filter(s => s.text).map(({ label, text }) => (
             <div key={label}>
-              <p className="text-xs text-purple-400 font-medium mb-1">{label}</p>
+              <p className="text-xs font-medium mb-1 text-[var(--accent)]">{label}</p>
               <p className="text-sm leading-relaxed">{text}</p>
             </div>
           ))}
           {result.script?.reel_caption && (
             <div>
-              <p className="text-xs text-purple-400 font-medium mb-1">Instagram Caption</p>
+              <p className="text-xs font-medium mb-1 text-[var(--accent)]">Instagram Caption</p>
               <p className="text-sm leading-relaxed text-[var(--text-muted)]">{result.script.reel_caption}</p>
             </div>
           )}

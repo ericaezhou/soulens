@@ -1,8 +1,6 @@
 import cv2
 import numpy as np
-from PIL import Image
 from sklearn.cluster import KMeans
-from pathlib import Path
 
 
 def analyze_color_grade(video_path: str, scenes: list[dict]) -> dict:

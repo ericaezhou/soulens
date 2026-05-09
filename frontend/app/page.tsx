@@ -17,11 +17,11 @@ export default function Home() {
   const [error, setError] = useState("");
   const [connecting, setConnecting] = useState(false);
 
-  const handleConnect = useCallback(async (url: string) => {
+  const handleConnect = useCallback(async (url: string, reelUrls?: string[]) => {
     setConnecting(true);
     setError("");
     try {
-      const { username: uname } = await connectProfile(url);
+      const { username: uname } = await connectProfile(url, reelUrls);
       setUsername(uname);
       setPhase("building");
       setConnecting(false);
@@ -62,8 +62,7 @@ export default function Home() {
     <div className="min-h-screen flex flex-col" style={{ background: "var(--bg)" }}>
       <nav className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)]">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center"
-            style={{ background: "linear-gradient(135deg, #c084fc, #f472b6)" }}>
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center gradient-accent">
             <Sparkles size={13} className="text-white" />
           </div>
           <span className="font-semibold text-sm tracking-tight">auto-edit</span>

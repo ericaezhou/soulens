@@ -89,10 +89,14 @@ Rules:
 - If they don't use text overlays, return an empty caption_plan array"""
 
     try:
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        from dotenv import load_dotenv
+        import os as _os
+        load_dotenv(override=True)
+        api_key = _os.getenv("ANTHROPIC_API_KEY", "") or ANTHROPIC_API_KEY
+        client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=1500,
+            max_tokens=2000,
             messages=[{"role": "user", "content": prompt}],
         )
         raw = response.content[0].text.strip()

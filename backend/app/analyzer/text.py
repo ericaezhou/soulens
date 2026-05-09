@@ -1,7 +1,6 @@
 import cv2
 import numpy as np
 import pytesseract
-from PIL import Image
 from collections import Counter
 
 
@@ -72,6 +71,7 @@ def detect_text_overlays(video_path: str) -> dict:
         "text_timing": text_timing,
         "sample_texts": [d.get("text", "") for d in detections[:5]],
         "style_hints": style_hints,
+        "timestamps": [d["timestamp"] for d in detections if "timestamp" in d],
     }
 
 

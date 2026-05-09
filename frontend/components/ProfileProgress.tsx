@@ -35,8 +35,8 @@ export default function ProfileProgress({ username, step = "fetching_urls", prog
           </div>
           <div className="h-1.5 bg-[var(--surface-2)] rounded-full overflow-hidden">
             <div
-              className="h-full rounded-full transition-all duration-700"
-              style={{ width: `${pct}%`, background: "linear-gradient(90deg, #c084fc, #f472b6)" }}
+              className="h-full rounded-full gradient-accent-h transition-all duration-700"
+              style={{ width: `${pct}%` }}
             />
           </div>
         </div>
@@ -49,14 +49,10 @@ export default function ProfileProgress({ username, step = "fetching_urls", prog
             return (
               <div
                 key={i}
-                className="flex-1 h-8 rounded-md transition-all duration-300"
+                className={`flex-1 h-8 rounded-md transition-all duration-300 ${done ? "gradient-accent" : ""}`}
                 style={{
                   minWidth: "16px",
-                  background: done
-                    ? "linear-gradient(135deg, #c084fc, #f472b6)"
-                    : active
-                    ? "rgba(192,132,252,0.3)"
-                    : "var(--surface-2)",
+                  background: active ? "rgba(var(--accent-rgb), 0.3)" : done ? undefined : "var(--surface-2)",
                 }}
               />
             );

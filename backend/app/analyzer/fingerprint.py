@@ -28,12 +28,16 @@ def synthesize_style_profile(username: str, reels: list[dict]) -> dict:
 
 
 def _call_claude(username: str, reels: list[dict]) -> dict:
-    if not ANTHROPIC_API_KEY:
+    from dotenv import load_dotenv
+    import os as _os
+    load_dotenv(override=True)
+    api_key = _os.getenv("ANTHROPIC_API_KEY", "") or ANTHROPIC_API_KEY
+    if not api_key:
         return {"error": "No Anthropic API key configured"}
 
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    client = anthropic.Anthropic(api_key=api_key)
 
-    # Build a compact but complete representation of all reels
+    # Build compact measurement summaries
     reels_summary = []
     for i, r in enumerate(reels):
         p = r.get("pacing", {})
@@ -41,13 +45,12 @@ def _call_claude(username: str, reels: list[dict]) -> dict:
         c = r.get("color", {})
         t = r.get("text", {})
         mo = r.get("motion", {})
-
         reels_summary.append({
             "reel": i + 1,
             "duration_s": round(r.get("meta", {}).get("duration") or 0, 1),
             "cuts": p.get("cut_count", 0),
             "avg_cut_s": round(p.get("avg_cut_duration", 0), 2),
-            "cut_sequence": p.get("cut_durations", [])[:20],  # first 20 cuts
+            "cut_sequence": p.get("cut_durations", [])[:20],
             "rhythm": p.get("rhythm", ""),
             "pacing_variation": round(p.get("pacing_variation", 0), 2),
             "bpm": round(a.get("bpm", 0)),
@@ -58,83 +61,127 @@ def _call_claude(username: str, reels: list[dict]) -> dict:
             "brightness": round(c.get("brightness", 0), 2),
             "contrast": round(c.get("contrast", 0), 2),
             "warmth": round(c.get("warmth", 0), 3),
-            "palette": c.get("dominant_palette", [])[:4],
             "eq_params": c.get("eq_params", {}),
             "has_text": t.get("has_text", False),
             "text_placement": t.get("dominant_placement"),
-            "text_timing": t.get("text_timing"),
             "text_hints": t.get("style_hints", []),
             "motion_style": mo.get("motion_style", ""),
-            "skin_ratio": round(c.get("skin_ratio", 0), 2),
         })
 
-    prompt = f"""You are an expert video editor analyzing {len(reels)} Instagram Reels from @{username} to build their definitive editing Style Profile.
+    # Build multimodal content: measurements + key frames per reel
+    content = []
+    content.append({"type": "text", "text": (
+        f"You are a professional video editor building a definitive Style Profile for @{username} "
+        f"by analyzing {len(reels)} of their Instagram Reels.\n\n"
+        f"You have two inputs per reel:\n"
+        f"1. Precise measurements (cut timing, color values, BPM, motion)\n"
+        f"2. Key frames: hook (0.5s), body (40%), outro (85%), plus any text-overlay moment\n\n"
+        f"MEASUREMENT DATA:\n{json.dumps(reels_summary, indent=2)}"
+    )})
 
-Here is the full per-reel analysis data:
+    # Attach frames grouped by reel
+    has_frames = any(r.get("frames") for r in reels)
+    if has_frames:
+        content.append({"type": "text", "text": "\n\nKEY FRAMES (hook / body / outro for each reel):"})
+        for i, r in enumerate(reels):
+            frames = r.get("frames", [])
+            if not frames:
+                continue
+            dur = r.get("meta", {}).get("duration") or 0
+            content.append({"type": "text", "text": f"\nReel {i+1} ({dur:.0f}s):"})
+            for frame_b64 in frames:
+                content.append({
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": "image/jpeg", "data": frame_b64},
+                })
 
-{json.dumps(reels_summary, indent=2)}
+    content.append({"type": "text", "text": f"""
 
-Your job: find the PATTERNS across all these reels — not averages. What does this creator consistently do? What varies? What defines their style?
+Your job: find PATTERNS across all reels — not averages. What does this creator CONSISTENTLY do?
+Look specifically at:
+- Shot composition and framing (from the frames)
+- How they structure cooking content: what steps they show, what they skip, what order
+- Their hook formula: exactly what's in frame 0-3s to grab attention
+- Their money shot: the climax/hero visual that makes people save the video
+- Pacing rhythm: does it match beat drops, speech, or action?
+- Text overlay design: placement, style, what info they caption vs. say out loud
 
-Respond with a JSON object (raw JSON, no markdown) with these exact keys:
+Respond with a JSON object (raw JSON, no markdown):
 
 {{
-  "style_name": "2-3 word name capturing their editing identity",
+  "style_name": "2-3 word editing identity (e.g. 'Kinetic Kitchen')",
   "vibe": "One sentence: what does watching their content feel like?",
-  "content_type": "What kind of content (lifestyle, fashion, tutorial, travel, GRWM, etc.)",
-  "creator_archetype": "The aesthetic curator / the storyteller / the hype creator / the informer / etc.",
+  "content_type": "Type of content (cooking tutorial, recipe, GRWM, etc.)",
+  "creator_archetype": "Their creator persona (e.g. 'the relatable chef', 'the technique teacher')",
+
+  "hook_formula": "Exactly what they do in the first 3 seconds — what's in frame, what text appears, what energy",
+
+  "cooking_narrative": {{
+    "description": "How they structure a cooking reel start to finish",
+    "sequence": ["ordered list of the steps they show, e.g. 'ingredients reveal', 'prep close-up', 'heat/cook', 'plating', 'first bite'"],
+    "what_they_skip": "What parts of cooking they cut out entirely",
+    "money_shot": "Their go-to hero shot — what it looks like and when it appears",
+    "pacing_within_steps": "Do they linger on certain steps? Which ones and why?"
+  }},
+
+  "visual_identity": {{
+    "shot_composition": "How they frame shots — POV, overhead, eye-level, close-up ratio",
+    "camera_work": "Handheld, static, dolly moves, etc.",
+    "lighting_style": "What their lighting looks like (natural, warm kitchen, moody, bright studio)",
+    "transition_style": "How they cut between shots (hard cut, match cut, whip pan, etc.)"
+  }},
 
   "pacing_pattern": {{
-    "description": "How they structure pacing (e.g. 'fast open 3-5 cuts, slow middle, fast close')",
-    "opening_cuts": "How they open — fast or slow, how many cuts in first 3s",
-    "body_rhythm": "Pacing in the middle section",
-    "closing_style": "How they end — fade, hard cut, slow down",
-    "target_avg_cut_s": <float, the cut duration their edits should target>,
-    "target_variation": <float 0-1, how much variation to add: 0=robotic, 0.3=natural, 0.6=dynamic>,
-    "beat_sync_strength": <float 0-1, how strongly to sync cuts to beats>
+    "description": "How pacing flows across the reel",
+    "opening_cuts": "Hook pacing — fast or slow, how many cuts in first 3s",
+    "body_rhythm": "Pacing in the cooking body",
+    "closing_style": "How they end",
+    "target_avg_cut_s": <float>,
+    "target_variation": <float 0-1>,
+    "beat_sync_strength": <float 0-1>
   }},
 
   "color_recipe": {{
-    "description": "Their color philosophy in plain English",
-    "grade_style": "<one of: vibrant_warm | vibrant_cool | desaturated_moody | faded_film | bright_airy | dark_moody | high_contrast_punchy | golden_warm | cool_teal | natural_balanced>",
-    "eq_brightness": <float -0.5 to 0.5, FFmpeg brightness adjustment>,
-    "eq_contrast": <float 0.5 to 3.0, FFmpeg contrast multiplier>,
-    "eq_saturation": <float 0.0 to 3.0, FFmpeg saturation multiplier>,
-    "eq_r_gain": <float 0.5 to 2.0, red channel gain for warmth>,
-    "eq_b_gain": <float 0.5 to 2.0, blue channel gain for cool>,
+    "description": "Their color philosophy — warm kitchen glow? Clean bright studio? Moody dark?",
+    "grade_style": "<vibrant_warm|vibrant_cool|desaturated_moody|faded_film|bright_airy|dark_moody|high_contrast_punchy|golden_warm|cool_teal|natural_balanced>",
+    "eq_brightness": <float -0.5 to 0.5>,
+    "eq_contrast": <float 0.5 to 3.0>,
+    "eq_saturation": <float 0.0 to 3.0>,
+    "eq_r_gain": <float 0.5 to 2.0>,
+    "eq_b_gain": <float 0.5 to 2.0>,
     "consistent_across_reels": <true/false>
   }},
 
   "text_recipe": {{
     "uses_text": <true/false>,
-    "placement": "<lower_third | upper_third | center | none>",
-    "timing": "<throughout | early_hook | periodic | sparse | none>",
-    "style": "<all_caps_bold | mixed_case | minimal | heavy>",
-    "description": "How and when they use text overlays"
+    "placement": "<lower_third|upper_third|center|none>",
+    "timing": "<throughout|early_hook|periodic|sparse|none>",
+    "style": "<all_caps_bold|mixed_case|minimal|heavy>",
+    "description": "What info they put in text vs. say out loud"
   }},
 
   "structure_template": {{
-    "description": "Their typical reel structure from start to finish",
-    "hook_duration_s": <float, how long their hook section typically is>,
-    "hook_style": "What they do in the hook to grab attention",
-    "body_structure": "What happens in the main body",
+    "description": "Full reel structure start to finish",
+    "hook_duration_s": <float>,
+    "hook_style": "What the hook looks/feels like",
+    "body_structure": "How the cooking middle section is structured",
     "outro_style": "How they close",
-    "target_total_duration_s": <float, ideal output duration>
+    "target_total_duration_s": <float>
   }},
 
-  "signature_moves": ["3-5 specific techniques that define their editing"],
-  "avoid": ["2-3 things that would break their style"],
+  "signature_moves": ["4-6 specific techniques that make their editing unmistakably theirs"],
+  "avoid": ["3 things that would immediately break their style"],
 
   "replication_instructions": [
-    "Step-by-step instructions for editing new footage in this exact style — be specific and actionable, not generic"
+    "Specific, actionable step-by-step instructions for editing new raw cooking footage in this exact style"
   ]
-}}"""
+}}"""})
 
     try:
         response = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=2000,
-            messages=[{"role": "user", "content": prompt}],
+            max_tokens=8000,
+            messages=[{"role": "user", "content": content}],
         )
         raw = response.content[0].text.strip()
         if raw.startswith("```"):

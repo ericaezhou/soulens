@@ -1,11 +1,9 @@
 import subprocess
-import json
 import numpy as np
 import soundfile as sf
 import scipy.signal
 import tempfile
 import os
-from pathlib import Path
 
 
 def extract_audio(video_path: str, output_path: str) -> bool:
