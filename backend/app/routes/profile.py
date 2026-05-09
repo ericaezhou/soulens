@@ -46,8 +46,13 @@ async def connect_profile(req: ConnectRequest, background_tasks: BackgroundTasks
 
     display_name = req.display_name or slug
 
-    # Return existing completed profile from DB without re-running
     record = get_profile_record(slug)
+
+    # Already waiting for user to trigger synthesis — don't restart analysis
+    if record and record["status"] == "awaiting_synthesis":
+        return {"username": slug, "status": "awaiting_synthesis", "reel_urls": record["reel_urls"]}
+
+    # Return existing completed profile without re-running
     if record and record["status"] == "completed":
         existing = load_profile(slug)
         if existing and "error" not in existing.get("synthesis", {}) and existing.get("synthesis"):
@@ -60,7 +65,7 @@ async def connect_profile(req: ConnectRequest, background_tasks: BackgroundTasks
         if not preset_urls:
             raise HTTPException(status_code=400, detail="No valid Instagram URLs found.")
         upsert_profile(slug, display_name, preset_urls, status="processing")
-        _write_state(slug, {"status": "processing", "step": "downloading_reels", "progress": 0, "total": len(preset_urls)})
+        _write_state(slug, {"status": "processing", "step": "analyzing_reels", "progress": 0, "total": len(preset_urls)})
         background_tasks.add_task(_run_profile_build, slug, len(preset_urls), preset_urls)
     else:
         count = max(1, min(req.reel_count, 20))
@@ -93,7 +98,7 @@ async def get_profile(slug: str):
 
 @router.put("/{slug}/reels")
 async def update_profile_reels(slug: str, req: UpdateReelsRequest, background_tasks: BackgroundTasks):
-    """Update the URL set for a profile and re-synthesize."""
+    """Update the URL set for a profile and re-analyze (pauses before synthesis)."""
     record = get_profile_record(slug)
     if not record:
         raise HTTPException(status_code=404, detail=f"No profile found for @{slug}")
@@ -105,28 +110,55 @@ async def update_profile_reels(slug: str, req: UpdateReelsRequest, background_ta
     old_set = set(record["reel_urls"])
     new_set = set(urls)
 
+    # Same URLs and already awaiting synthesis — just return that state
+    if new_set == old_set and record["status"] == "awaiting_synthesis":
+        return {"username": slug, "status": "awaiting_synthesis", "cached": True}
+
+    # Same URLs and already completed — return cached synthesis
     if new_set == old_set and record["status"] == "completed":
-        # Nothing changed — return cached
         existing = load_profile(slug)
         if existing and "error" not in existing.get("synthesis", {}):
             return {"username": slug, "status": "completed", "cached": True}
 
+    # Removals only from a completed profile — synthesis still valid, just update URL list
     only_removals = new_set < old_set and record["status"] == "completed"
     if only_removals:
-        # Reels removed but none added — synthesis is still valid, just update the URL list
         existing = load_profile(slug)
         if existing and "error" not in existing.get("synthesis", {}):
             upsert_profile(slug, record["display_name"], urls, status="completed")
             return {"username": slug, "status": "completed", "cached": True}
 
-    # URLs added or synthesis was broken — clear and rebuild
+    # New URLs added (or prior synthesis failed) — re-analyze; per-reel cache handles already-seen reels
     profile_json = PROFILES_DIR / slug / "profile.json"
     profile_json.unlink(missing_ok=True)
 
     upsert_profile(slug, record["display_name"], urls, status="processing")
-    _write_state(slug, {"status": "processing", "step": "downloading_reels", "progress": 0, "total": len(urls)})
+    _write_state(slug, {"status": "processing", "step": "analyzing_reels", "progress": 0, "total": len(urls)})
     background_tasks.add_task(_run_profile_build, slug, len(urls), urls)
 
+    return {"username": slug, "status": "processing"}
+
+
+@router.post("/{slug}/synthesize")
+async def synthesize_profile(slug: str, background_tasks: BackgroundTasks):
+    """Trigger Claude synthesis after the user confirms (this is where API credits are used)."""
+    state = _read_state(slug)
+    if not state or state.get("status") != "awaiting_synthesis":
+        raise HTTPException(status_code=400, detail="Profile is not awaiting synthesis")
+
+    raw_path = PROFILES_DIR / slug / "raw_profile.json"
+    if not raw_path.exists():
+        raise HTTPException(status_code=400, detail="Raw analysis data not found — please re-analyze")
+
+    total = state.get("total", 0)
+    update_status(slug, "processing")
+    _write_state(slug, {
+        "status": "processing",
+        "step": "synthesizing_style",
+        "progress": total,
+        "total": total,
+    })
+    background_tasks.add_task(_run_synthesis, slug)
     return {"username": slug, "status": "processing"}
 
 
@@ -148,30 +180,64 @@ async def _run_profile_build(username: str, count: int = 20, preset_urls: list[s
             _write_state(username, {"status": "processing", "step": "fetching_urls", "progress": 0, "total": count})
             reel_urls = await asyncio.to_thread(fetch_reel_urls, username, count)
             total = len(reel_urls)
-            # Update DB with the discovered URLs
             record = get_profile_record(username)
             if record:
                 upsert_profile(username, record["display_name"], reel_urls, status="processing")
 
-        _write_state(username, {"status": "processing", "step": "downloading_reels", "progress": 0, "total": total})
+        _write_state(username, {"status": "processing", "step": "analyzing_reels", "progress": 0, "total": total})
 
-        progress_state = {"done": 0, "completed_urls": []}
+        progress_state: dict = {"done": 0, "log": []}
 
-        def on_progress(completed: int, total: int, url: str):
+        def on_progress(completed: int, total: int, url: str, result: dict):
+            shortcode = url.rstrip("/").split("/")[-1]
+            if "error" in result:
+                entry = {"shortcode": shortcode, "error": result["error"]}
+            else:
+                entry = {
+                    "shortcode": shortcode,
+                    "duration_s": round(result.get("meta", {}).get("duration") or 0),
+                    "cuts": result.get("pacing", {}).get("cut_count", 0),
+                    "grade": result.get("color", {}).get("grade_style", ""),
+                    "has_speech": result.get("transcript", {}).get("has_speech", False),
+                    "word_count": result.get("transcript", {}).get("word_count", 0),
+                }
             progress_state["done"] = completed
-            progress_state["completed_urls"].append(url)
+            progress_state["log"].append(entry)
             _write_state(username, {
                 "status": "processing",
                 "step": "analyzing_reels",
                 "progress": completed,
                 "total": total,
-                "current_url": url,
-                "completed_urls": list(progress_state["completed_urls"]),
+                "log": list(progress_state["log"]),
             })
 
         raw_profile = await asyncio.to_thread(build_profile, username, reel_urls, on_progress)
 
-        _write_state(username, {"status": "processing", "step": "synthesizing_style", "progress": total, "total": total})
+        # Persist raw analysis so synthesis can be triggered later
+        raw_path = PROFILES_DIR / username / "raw_profile.json"
+        raw_path.write_text(json.dumps(raw_profile))
+
+        # Pause here — user must confirm before API credits are spent
+        update_status(username, "awaiting_synthesis")
+        _write_state(username, {
+            "status": "awaiting_synthesis",
+            "step": "ready",
+            "progress": total,
+            "total": total,
+            "reels_analyzed": raw_profile["reels_analyzed"],
+            "reels_failed": raw_profile["reels_failed"],
+        })
+
+    except Exception as e:
+        update_status(username, "error")
+        _write_state(username, {"status": "error", "error": str(e)})
+
+
+async def _run_synthesis(username: str):
+    try:
+        raw_path = PROFILES_DIR / username / "raw_profile.json"
+        raw_profile = json.loads(raw_path.read_text())
+        total = raw_profile.get("reels_analyzed", 0) + raw_profile.get("reels_failed", 0)
 
         style_profile = await asyncio.to_thread(synthesize_style_profile, username, raw_profile["reels"])
         style_profile["reels_analyzed"] = raw_profile["reels_analyzed"]
@@ -179,7 +245,6 @@ async def _run_profile_build(username: str, count: int = 20, preset_urls: list[s
 
         save_profile(username, style_profile)
         update_status(username, "completed", raw_profile["reels_analyzed"])
-
         _write_state(username, {
             "status": "completed",
             "step": "done",

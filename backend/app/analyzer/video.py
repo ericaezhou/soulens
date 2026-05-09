@@ -100,23 +100,30 @@ def analyze_motion(video_path: str, scenes: list[dict]) -> dict:
     }
 
 
-def extract_key_frames(video_path: str, duration: float, text_timestamps: list[float] | None = None) -> list[str]:
+def extract_key_frames(video_path: str, duration: float, scenes: list[dict] | None = None) -> list[str]:
     """
-    Extract 3-4 key frames as base64 JPEGs for Claude vision analysis.
-    Samples: hook (0.5s), body (40%), outro (85%), + first text-overlay moment.
+    Extract 8-10 frames at scene boundaries for Claude vision analysis.
+    Hook (first 3 cuts) + 5 evenly sampled body scenes + outro.
+    Falls back to fixed timestamps if no scene data.
     """
-    sample_times = [0.5, duration * 0.4, duration * 0.85]
-
-    # Include one text-overlay frame if available
-    if text_timestamps:
-        for ts in text_timestamps:
-            if ts > 1.0:
-                sample_times.append(ts)
-                break
+    if scenes and len(scenes) >= 3:
+        starts = [s["start_time"] for s in scenes]
+        hook_times = starts[:3]
+        outro_time = starts[-1]
+        body_starts = starts[3:-1]
+        step = max(1, len(body_starts) // 5)
+        body_times = body_starts[::step][:5]
+        sample_times = hook_times + body_times + [outro_time]
+    else:
+        sample_times = [0.5, duration * 0.2, duration * 0.4, duration * 0.6, duration * 0.85]
 
     frames = []
+    seen: set[float] = set()
     for t in sample_times:
-        t = max(0.1, min(t, duration - 0.1))
+        t = round(max(0.1, min(t, duration - 0.1)), 2)
+        if t in seen:
+            continue
+        seen.add(t)
         cmd = [
             "ffmpeg", "-ss", f"{t:.2f}", "-i", video_path,
             "-frames:v", "1", "-vf", "scale=360:-2",

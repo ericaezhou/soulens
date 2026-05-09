@@ -3,11 +3,12 @@ import { useState, useCallback } from "react";
 import { Sparkles, RotateCcw } from "lucide-react";
 import ProfileConnect from "@/components/ProfileConnect";
 import ProfileProgress from "@/components/ProfileProgress";
+import SynthesisGate from "@/components/SynthesisGate";
 import StyleProfileCard from "@/components/StyleProfileCard";
 import EditPanel from "@/components/EditPanel";
-import { connectProfile, getProfileState, poll, StyleProfile, ProfileState } from "@/lib/api";
+import { connectProfile, triggerSynthesis, getProfileState, poll, StyleProfile, ProfileState } from "@/lib/api";
 
-type Phase = "connect" | "building" | "profile" | "editing";
+type Phase = "connect" | "building" | "ready_to_synthesize" | "profile" | "editing";
 
 export default function Home() {
   const [phase, setPhase] = useState<Phase>("connect");
@@ -17,6 +18,30 @@ export default function Home() {
   const [error, setError] = useState("");
   const [connecting, setConnecting] = useState(false);
 
+  const startPolling = useCallback((uname: string) => {
+    const stop = poll(
+      () => getProfileState(uname),
+      (state) => {
+        setProfileState(state);
+        if (state.status === "awaiting_synthesis") {
+          setPhase("ready_to_synthesize");
+          stop();
+        }
+        if (state.status === "completed" && state.profile) {
+          setProfile(state.profile);
+          setPhase("profile");
+          stop();
+        }
+        if (state.status === "error") {
+          setError(state.error || "Profile build failed");
+          setPhase("connect");
+          stop();
+        }
+      },
+      3000,
+    );
+  }, []);
+
   const handleConnect = useCallback(async (url: string, reelUrls?: string[], displayName?: string) => {
     setConnecting(true);
     setError("");
@@ -25,29 +50,18 @@ export default function Home() {
       setUsername(uname);
       setPhase("building");
       setConnecting(false);
-
-      const stop = poll(
-        () => getProfileState(uname),
-        (state) => {
-          setProfileState(state);
-          if (state.status === "completed" && state.profile) {
-            setProfile(state.profile);
-            setPhase("profile");
-            stop();
-          }
-          if (state.status === "error") {
-            setError(state.error || "Profile build failed");
-            setPhase("connect");
-            stop();
-          }
-        },
-        3000,
-      );
+      startPolling(uname);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to connect");
       setConnecting(false);
     }
-  }, []);
+  }, [startPolling]);
+
+  const handleSynthesize = useCallback(async () => {
+    await triggerSynthesis(username);
+    setPhase("building");
+    startPolling(username);
+  }, [username, startPolling]);
 
   const reset = () => {
     setPhase("connect");
@@ -89,6 +103,16 @@ export default function Home() {
               step={profileState.step}
               progress={profileState.progress}
               total={profileState.total}
+              log={profileState.log}
+            />
+          )}
+
+          {phase === "ready_to_synthesize" && profileState && (
+            <SynthesisGate
+              username={username}
+              reelsAnalyzed={profileState.reels_analyzed ?? 0}
+              reelsFailed={profileState.reels_failed ?? 0}
+              onConfirm={handleSynthesize}
             />
           )}
 

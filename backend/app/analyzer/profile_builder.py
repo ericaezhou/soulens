@@ -94,8 +94,8 @@ def analyze_single_reel(reel_url: str, reel_dir: Path) -> dict | None:
         motion = analyze_motion(path, scenes)
         transcript = transcribe_audio(path)
 
-        # Extract frames before deleting — for Claude vision analysis
-        frames = extract_key_frames(path, duration, None)
+        # Extract frames before deleting — scene boundaries give Claude shot type diversity
+        frames = extract_key_frames(path, duration, scenes)
 
         # Delete video file immediately — we only need the analysis data
         Path(path).unlink(missing_ok=True)
@@ -128,12 +128,12 @@ def analyze_single_reel(reel_url: str, reel_dir: Path) -> dict | None:
 def build_profile(
     username: str,
     reel_urls: list[str],
-    on_progress: Callable[[int, int, str], None] | None = None,
+    on_progress: Callable[[int, int, str, dict], None] | None = None,
 ) -> dict:
     """
     Analyze all reels and return a raw profile dict (pre-Claude synthesis).
     Each reel result is saved to disk immediately so a restart can resume.
-    on_progress(completed, total, reel_url) called after each reel.
+    on_progress(completed, total, reel_url, result) called after each reel.
     """
     user_dir = PROFILES_DIR / username / "reels"
     user_dir.mkdir(parents=True, exist_ok=True)
@@ -161,7 +161,7 @@ def build_profile(
             completed_count += 1
             count = completed_count
         if on_progress:
-            on_progress(count, total, url)
+            on_progress(count, total, url, result)
 
     with ThreadPoolExecutor(max_workers=total) as executor:
         futures = {executor.submit(process, i, url): url for i, url in enumerate(reel_urls)}

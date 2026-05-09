@@ -6,10 +6,14 @@ export interface SavedProfile {
   slug: string;
   display_name: string;
   reel_urls: string[];
-  status: "processing" | "completed" | "error";
+  status: "processing" | "awaiting_synthesis" | "completed" | "error";
   reels_analyzed: number;
   created_at: string;
   updated_at: string;
+}
+
+export async function deleteProfile(slug: string): Promise<void> {
+  await fetch(`${API}/profile/${slug}`, { method: "DELETE" });
 }
 
 export async function getProfiles(): Promise<SavedProfile[]> {
@@ -33,13 +37,25 @@ export async function updateProfileReels(slug: string, reelUrls: string[]): Prom
 
 // ---- Profile ----
 
+export interface ReelLogEntry {
+  shortcode: string;
+  duration_s?: number;
+  cuts?: number;
+  grade?: string;
+  has_speech?: boolean;
+  word_count?: number;
+  error?: string;
+}
+
 export interface ProfileState {
-  status: "processing" | "completed" | "error";
+  status: "processing" | "awaiting_synthesis" | "completed" | "error";
   step?: string;
   progress?: number;
   total?: number;
   error?: string;
   reels_analyzed?: number;
+  reels_failed?: number;
+  log?: ReelLogEntry[];
   profile?: StyleProfile;
 }
 
@@ -95,6 +111,15 @@ export async function connectProfile(instagramUrl: string, reelUrls?: string[], 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || "Failed to connect profile");
+  }
+  return res.json();
+}
+
+export async function triggerSynthesis(username: string): Promise<{ username: string }> {
+  const res = await fetch(`${API}/profile/${username}/synthesize`, { method: "POST" });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to start synthesis");
   }
   return res.json();
 }
@@ -179,7 +204,7 @@ export function poll<T extends { status: string }>(
       try {
         const data = await fn();
         onUpdate(data);
-        if (data.status === "completed" || data.status === "error") break;
+        if (data.status === "completed" || data.status === "error" || data.status === "awaiting_synthesis") break;
       } catch { /* swallow and retry */ }
       await new Promise((r) => setTimeout(r, intervalMs));
     }

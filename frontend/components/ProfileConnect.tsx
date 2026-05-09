@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
-import { ArrowRight, Loader2, BookOpen, Pencil, Clock } from "lucide-react";
-import { getProfiles, updateProfileReels, SavedProfile } from "@/lib/api";
+import { ArrowRight, Loader2, BookOpen, Pencil, Clock, Trash2 } from "lucide-react";
+import { getProfiles, deleteProfile, updateProfileReels, SavedProfile } from "@/lib/api";
 
 interface Props {
   onSubmit: (url: string, reelUrls?: string[], displayName?: string) => void;
@@ -59,6 +59,11 @@ export default function ProfileConnect({ onSubmit, loading, error }: Props) {
       setConflict(match || null);
     }, 400);
   }, [profileName, editingSlug]);
+
+  async function handleDeleteProfile(slug: string) {
+    await deleteProfile(slug);
+    setSavedProfiles((prev) => prev.filter((p) => p.slug !== slug));
+  }
 
   function handleEditProfile(profile: SavedProfile) {
     setEditingSlug(profile.slug);
@@ -248,15 +253,20 @@ export default function ProfileConnect({ onSubmit, loading, error }: Props) {
                 </div>
                 <div className="flex gap-2 shrink-0">
                   <button
+                    onClick={() => handleDeleteProfile(p.slug)}
+                    className="text-xs p-1.5 rounded-lg text-[var(--text-muted)] hover:text-red-400 glass transition-colors">
+                    <Trash2 size={13} />
+                  </button>
+                  <button
                     onClick={() => handleEditProfile(p)}
                     className="text-xs px-3 py-1.5 rounded-lg font-medium text-[var(--text-muted)] glass">
                     Edit
                   </button>
                   <button
                     onClick={() => onSubmit(p.slug)}
-                    disabled={p.status !== "completed"}
+                    disabled={p.status !== "completed" && p.status !== "awaiting_synthesis"}
                     className="btn-primary text-xs px-3 py-1.5 rounded-lg font-medium disabled:opacity-40 disabled:cursor-not-allowed">
-                    Load
+                    {p.status === "awaiting_synthesis" ? "Resume" : "Load"}
                   </button>
                 </div>
               </div>
