@@ -4,6 +4,8 @@ by analyzing all of them and synthesizing patterns across them.
 """
 import json
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Callable
 
@@ -139,9 +141,13 @@ def build_profile(
     cache_dir = PROFILES_DIR / username / "reel_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    reels_data = []
-    for i, url in enumerate(reel_urls):
-        # Use a stable filename derived from the URL shortcode
+    total = len(reel_urls)
+    reels_data = [None] * total
+    completed_count = 0
+    lock = threading.Lock()
+
+    def process(index: int, url: str):
+        nonlocal completed_count
         shortcode = url.rstrip("/").split("/")[-1]
         cache_file = cache_dir / f"{shortcode}.json"
 
@@ -151,9 +157,17 @@ def build_profile(
             result = analyze_single_reel(url, user_dir)
             cache_file.write_text(json.dumps(result))
 
-        reels_data.append(result)
+        with lock:
+            reels_data[index] = result
+            completed_count += 1
+            count = completed_count
         if on_progress:
-            on_progress(i + 1, len(reel_urls), url)
+            on_progress(count, total, url)
+
+    with ThreadPoolExecutor(max_workers=total) as executor:
+        futures = {executor.submit(process, i, url): url for i, url in enumerate(reel_urls)}
+        for future in as_completed(futures):
+            future.result()  # re-raise any exception
 
     successful = [r for r in reels_data if "error" not in r]
     if not successful:
