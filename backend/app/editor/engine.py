@@ -17,6 +17,7 @@ def apply_style(
     output_dir: Path,
     caption_plan: list[dict] | None = None,
     candidate_clips: list[dict] | None = None,
+    apply_color: bool = True,
 ) -> dict:
     recipe = style_profile.get("edit_recipe", {})
 
@@ -31,10 +32,8 @@ def apply_style(
     duration = probe["duration"]
 
     if candidate_clips:
-        # Use real scene timestamps from rough cut Pass 1
         cuts = _clips_to_cuts(candidate_clips, recipe)
     else:
-        # Fallback: mathematical cuts from style parameters
         cuts = _generate_cuts(
             total_duration=duration,
             target_duration=recipe.get("target_duration_s", 25.0),
@@ -45,7 +44,7 @@ def apply_style(
         )
 
     color = recipe.get("color", {})
-    color_filter = _build_color_filter(color)
+    color_filter = _build_color_filter(color) if apply_color else None
 
     # Render MP4
     cmd = _build_ffmpeg_cmd(footage_path, str(mp4_path), cuts, color_filter, caption_plan)
@@ -53,8 +52,8 @@ def apply_style(
     if result.returncode != 0:
         raise RuntimeError(f"FFmpeg error: {result.stderr[-800:]}")
 
-    # Generate FCPXml — clips get the same color recipe applied
-    clips_with_color = [dict(c, color=color) for c in cuts]
+    # Generate FCPXml
+    clips_with_color = [dict(c, color=color if apply_color else {}) for c in cuts]
     generate_fcpxml(
         clips=clips_with_color,
         source_path=str(Path(footage_path).resolve()),
@@ -70,7 +69,7 @@ def apply_style(
         "fcpxml_filename": fcpxml_path.name,
         "cuts_applied": len(cuts),
         "output_duration_s": round(sum(c["duration"] for c in cuts), 2),
-        "grade_style": recipe.get("grade_style", "natural_balanced"),
+        "grade_style": recipe.get("grade_style", "natural_balanced") if apply_color else "none",
         "file_size_bytes": mp4_path.stat().st_size if mp4_path.exists() else 0,
     }
 
@@ -113,19 +112,13 @@ def _clips_to_cuts(candidate_clips: list[dict], recipe: dict) -> list[dict]:
     cuts = []
     accumulated = 0.0
 
-    for i, clip in enumerate(candidate_clips):
+    for clip in candidate_clips:
         remaining = target_duration - accumulated
         if remaining <= 0.2:
             break
 
         start = clip["start_time"]
-        clip_dur = min(clip["duration"], remaining)
-
-        # First output clip = hook: cap it to hook_duration so it doesn't overstay
-        if i == 0:
-            clip_dur = min(clip_dur, hook_duration)
-
-        clip_dur = max(0.2, clip_dur)
+        clip_dur = max(0.2, min(clip["duration"], remaining))
         end = start + clip_dur
 
         cuts.append({"start": round(start, 3), "end": round(end, 3), "duration": round(clip_dur, 3)})
@@ -190,20 +183,25 @@ def _build_ffmpeg_cmd(
     input_path: str,
     output_path: str,
     cuts: list[dict],
-    color_filter: str,
+    color_filter: str | None,
     caption_plan: list[dict] | None,
 ) -> list[str]:
+    vf = f",{color_filter}" if color_filter else ""
+
     if not cuts:
-        return ["ffmpeg", "-i", input_path, "-vf", color_filter,
-                "-c:v", "libx264", "-preset", "fast", "-crf", "20",
-                "-c:a", "aac", "-b:a", "192k", output_path, "-y"]
+        base = ["ffmpeg", "-i", input_path]
+        if color_filter:
+            base += ["-vf", color_filter]
+        else:
+            base += ["-c:v", "copy"]
+        return base + ["-c:a", "aac", "-b:a", "192k", output_path, "-y"]
 
     n = len(cuts)
     filter_parts = []
     for i, cut in enumerate(cuts):
         s, dur = cut["start"], cut["duration"]
         filter_parts.append(
-            f"[0:v]trim=start={s:.3f}:duration={dur:.3f},setpts=PTS-STARTPTS,{color_filter}[v{i}];"
+            f"[0:v]trim=start={s:.3f}:duration={dur:.3f},setpts=PTS-STARTPTS{vf}[v{i}];"
             f"[0:a]atrim=start={s:.3f}:duration={dur:.3f},asetpts=PTS-STARTPTS[a{i}];"
         )
 

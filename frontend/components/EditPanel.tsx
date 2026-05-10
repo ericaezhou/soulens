@@ -52,6 +52,7 @@ export default function EditPanel({ profile }: Props) {
   const [isDragging, setIsDragging] = useState(false);
   const [topic, setTopic] = useState("");
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
+  const [skipScript, setSkipScript] = useState(true);
   const fileRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
 
@@ -72,7 +73,7 @@ export default function EditPanel({ profile }: Props) {
     try {
       const { job_id: footageId } = await uploadFootage(stagedFiles);
       setPhase("processing"); setStep("analyzing_footage");
-      const { job_id: editId } = await startEdit(profile.username, footageId, topic);
+      const { job_id: editId } = await startEdit(profile.username, footageId, topic, skipScript);
       setEditJobId(editId);
 
       const stop = poll(
@@ -162,6 +163,23 @@ export default function EditPanel({ profile }: Props) {
         </div>
 
         {error && <div className="glass rounded-xl p-3 text-sm text-red-400 border border-red-500/20">{error}</div>}
+
+        <label className="flex items-center justify-between glass rounded-xl px-4 py-3 cursor-pointer">
+          <div>
+            <p className="text-sm font-medium">AI Script + Captions</p>
+            <p className="text-xs text-[var(--text-muted)]">Calls Claude — skip while testing rough cut</p>
+          </div>
+          <button
+            role="switch"
+            aria-checked={!skipScript}
+            onClick={() => setSkipScript(s => !s)}
+            className="w-10 h-5 rounded-full transition-colors shrink-0"
+            style={{ background: skipScript ? "var(--surface-2)" : "var(--accent)" }}
+          >
+            <span className="block w-4 h-4 rounded-full bg-white shadow transition-transform mx-0.5"
+              style={{ transform: skipScript ? "translateX(0)" : "translateX(20px)" }} />
+          </button>
+        </label>
 
         <button onClick={handleUpload}
           className="btn-primary w-full py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2">
@@ -301,6 +319,32 @@ function EditResult({ result, jobId, onReset }: { result: NonNullable<EditState[
           {result.script?.hashtag_suggestions && result.script.hashtag_suggestions.length > 0 && (
             <p className="text-xs text-[var(--text-muted)]">{result.script.hashtag_suggestions.join(" ")}</p>
           )}
+        </div>
+      )}
+
+      {/* Rough cut breakdown */}
+      {result.rough_cut && (
+        <div className="glass rounded-2xl p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Rough Cut</h3>
+            <span className="text-xs text-[var(--text-muted)]">
+              {result.rough_cut.candidate_count}/{result.rough_cut.total_scenes} clips kept · {result.rough_cut.retention_pct}%
+            </span>
+          </div>
+          <div className="space-y-1">
+            {result.rough_cut.scenes.map((s, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs py-1 border-b border-[var(--border)] last:border-0">
+                <span className={`w-2 h-2 rounded-full shrink-0 ${s.keep ? "bg-green-400" : "bg-red-400"}`} />
+                <span className="text-[var(--text-muted)] w-20 shrink-0">{s.start.toFixed(1)}–{s.end.toFixed(1)}s</span>
+                <span className="flex-1 text-[var(--text-muted)]">
+                  blur {s.blur.toFixed(0)} · motion {s.motion.toFixed(1)} · brightness {s.brightness.toFixed(0)}
+                </span>
+                {!s.keep && (
+                  <span className="text-red-400 shrink-0">{s.reasons.join(", ")}</span>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

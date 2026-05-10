@@ -6,10 +6,14 @@ from scenedetect import detect, ContentDetector, AdaptiveDetector
 
 
 def detect_scenes(video_path: str) -> list[dict]:
+    scene_list = []
     try:
         scene_list = detect(video_path, AdaptiveDetector())
     except Exception:
-        scene_list = detect(video_path, ContentDetector(threshold=27.0))
+        try:
+            scene_list = detect(video_path, ContentDetector(threshold=27.0))
+        except Exception:
+            pass
 
     scenes = []
     for scene in scene_list:
@@ -21,7 +25,24 @@ def detect_scenes(video_path: str) -> list[dict]:
             "duration": round(end - start, 3),
         })
 
+    # Fallback: if OpenCV couldn't read the file, treat whole video as one scene
+    if not scenes:
+        duration = _probe_duration(video_path)
+        if duration > 0:
+            scenes = [{"start_time": 0.0, "end_time": round(duration, 3), "duration": round(duration, 3)}]
+
     return scenes
+
+
+def _probe_duration(video_path: str) -> float:
+    import subprocess as _sp, json as _json
+    result = _sp.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", video_path],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        return float(_json.loads(result.stdout).get("format", {}).get("duration", 0))
+    return 0.0
 
 
 def analyze_pacing(scenes: list[dict], total_duration: float) -> dict:

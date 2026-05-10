@@ -132,6 +132,12 @@ export async function getProfileState(username: string): Promise<ProfileState> {
 
 // ---- Edit ----
 
+export interface RoughCutScene {
+  start: number; end: number; duration: number;
+  keep: boolean; blur: number; motion: number; brightness: number;
+  reasons: string[];
+}
+
 export interface EditState {
   status: "processing" | "completed" | "error";
   step?: string;
@@ -144,6 +150,14 @@ export interface EditState {
     output_duration_s: number;
     grade_style: string;
     script?: ScriptResult;
+    rough_cut?: {
+      total_scenes: number;
+      candidate_count: number;
+      rejected_count: number;
+      retention_pct: number;
+      rejection_summary: Record<string, number>;
+      scenes: RoughCutScene[];
+    };
   };
 }
 
@@ -169,11 +183,12 @@ export async function uploadFootage(files: File | File[]): Promise<{ job_id: str
   return res.json();
 }
 
-export async function startEdit(username: string, footageJobId: string, topic: string): Promise<{ job_id: string }> {
+export async function startEdit(username: string, footageJobId: string, topic: string, skipScript = false): Promise<{ job_id: string }> {
   const form = new FormData();
   form.append("username", username);
   form.append("footage_job_id", footageJobId);
   form.append("topic", topic);
+  form.append("skip_script", String(skipScript));
   const res = await fetch(`${API}/edit/start`, { method: "POST", body: form });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));

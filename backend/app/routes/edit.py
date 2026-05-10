@@ -30,7 +30,8 @@ async def upload_footage(files: list[UploadFile] = File(...)):
         saved.append(p)
 
     if len(saved) == 1:
-        footage_path = saved[0]
+        # Always remux to mp4 so OpenCV/PySceneDetect can read HEVC MOV files
+        footage_path = await asyncio.to_thread(_remux_to_mp4, saved[0], job_dir)
     else:
         footage_path = await asyncio.to_thread(_concat_clips, saved, job_dir)
 
@@ -66,7 +67,7 @@ async def start_edit(
     edit_dir.mkdir(parents=True, exist_ok=True)
     _write_state(edit_dir, {"status": "processing", "job_id": edit_job_id, "step": "analyzing_footage"})
 
-    background_tasks.add_task(_run_edit, edit_job_id, footage_path, profile, topic, edit_dir)
+    background_tasks.add_task(_run_edit, edit_job_id, footage_path, profile, topic, edit_dir, skip_script)
     return {"job_id": edit_job_id, "status": "processing"}
 
 
@@ -148,7 +149,7 @@ def _get_completed_state(job_id: str) -> dict:
     return state
 
 
-async def _run_edit(job_id: str, footage_path: str, profile: dict, topic: str, edit_dir: Path):
+async def _run_edit(job_id: str, footage_path: str, profile: dict, topic: str, edit_dir: Path, skip_script: bool = False):
     try:
         # Step 1: detect scenes + universal rough cut (free, no API)
         _write_state(edit_dir, {"status": "processing", "job_id": job_id, "step": "rough_cut"})
@@ -162,41 +163,71 @@ async def _run_edit(job_id: str, footage_path: str, profile: dict, topic: str, e
         scenes = await asyncio.to_thread(detect_scenes, footage_path)
         rough = await asyncio.to_thread(run_rough_cut, footage_path, scenes)
 
+        rough_summary = {
+            "total_scenes": rough["total_scenes"],
+            "candidate_count": rough["candidate_count"],
+            "rejected_count": rough["rejected_count"],
+            "candidate_duration_s": rough["candidate_duration_s"],
+            "retention_pct": rough["retention_pct"],
+            "rejection_summary": rough["rejection_summary"],
+            "scenes": [
+                {
+                    "start": s["start_time"], "end": s["end_time"],
+                    "duration": s["duration"], "keep": s["keep"],
+                    "blur": s["blur_score"], "motion": s["motion_std"],
+                    "brightness": s["brightness"],
+                    "reasons": s["reject_reasons"],
+                }
+                for s in rough["candidates"] + rough["rejected"]
+            ],
+        }
+        rough_summary["scenes"].sort(key=lambda x: x["start"])
+
         _write_state(edit_dir, {
             "status": "processing", "job_id": job_id, "step": "rough_cut_done",
-            "rough_cut": {
-                "total_scenes": rough["total_scenes"],
-                "candidate_count": rough["candidate_count"],
-                "rejected_count": rough["rejected_count"],
-                "candidate_duration_s": rough["candidate_duration_s"],
-                "retention_pct": rough["retention_pct"],
-                "rejection_summary": rough["rejection_summary"],
-            },
+            "rough_cut": rough_summary,
         })
 
         candidate_clips = rough["candidates"]
 
-        # Step 2: generate script + caption plan
-        _write_state(edit_dir, {"status": "processing", "job_id": job_id, "step": "generating_script"})
-        script = await asyncio.to_thread(
-            generate_script_and_captions, profile, scenes, duration, topic
-        )
-        caption_plan = script.get("caption_plan") if isinstance(script, dict) else None
+        # Step 2: generate script + caption plan (skipped if skip_script=True)
+        script = None
+        caption_plan = None
+        if not skip_script:
+            _write_state(edit_dir, {"status": "processing", "job_id": job_id, "step": "generating_script"})
+            script = await asyncio.to_thread(
+                generate_script_and_captions, profile, scenes, duration, topic
+            )
+            caption_plan = script.get("caption_plan") if isinstance(script, dict) else None
 
         # Step 3: render video + fcpxml using rough cut candidates
         _write_state(edit_dir, {"status": "processing", "job_id": job_id, "step": "rendering"})
         edit_result = await asyncio.to_thread(
-            apply_style, footage_path, profile, edit_dir, caption_plan, candidate_clips
+            apply_style, footage_path, profile, edit_dir, caption_plan, candidate_clips,
+            False,  # apply_color disabled — color grade is a separate step
         )
 
         _write_state(edit_dir, {
             "status": "completed",
             "job_id": job_id,
-            "result": {**edit_result, "script": script, "rough_cut": rough},
+            "result": {**edit_result, "script": script, "rough_cut": rough_summary},
         })
 
     except Exception as e:
         _write_state(edit_dir, {"status": "error", "job_id": job_id, "error": str(e)})
+
+
+def _remux_to_mp4(src: Path, job_dir: Path) -> Path:
+    """Remux a single clip to mp4 so OpenCV can decode it (handles iPhone HEVC MOV)."""
+    out = job_dir / "footage.mp4"
+    cmd = ["ffmpeg", "-fflags", "+genpts", "-i", str(src), "-c", "copy", str(out), "-y"]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        # Fall back to H.264 transcode if copy fails
+        cmd = ["ffmpeg", "-i", str(src), "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+               "-c:a", "aac", "-b:a", "192k", str(out), "-y"]
+        subprocess.run(cmd, capture_output=True, text=True)
+    return out
 
 
 def _concat_clips(clips: list[Path], job_dir: Path) -> Path:

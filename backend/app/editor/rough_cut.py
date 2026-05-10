@@ -1,153 +1,256 @@
 """
 Pass 1: Universal rough cut — style-agnostic quality filter.
-Pure OpenCV/numpy — no API cost. Runs on every scene in raw footage.
+Pure OpenCV/numpy — $0, no API calls.
 
-Detects and rejects: blurry, too dark, overexposed, shaky, too short, duplicates.
-Returns candidate clips (passed quality checks) for Pass 2 (style-based selection).
+Window-based analysis (0.5s blocks):
+- Per window: MAX optical flow (catches any shaky frame in the block),
+  median Laplacian blur, mean brightness
+- Reject bad windows, absorb short bad gaps (≤ 1s) between good runs,
+  merge consecutive good windows into candidate clips ≥ 1.5s
 """
 import cv2
 import numpy as np
+import subprocess
+import json
 
+WINDOW_S = 0.5           # score in 0.5-second blocks
+MIN_CLIP_S = 1.5         # drop good segments shorter than this
+GAP_FILL_WINDOWS = 2     # absorb up to 2 consecutive bad windows (~1s) sandwiched between good footage
 
 THRESHOLDS = {
-    "min_duration_s": 0.8,       # shorter clips are likely mistakes or cuts
-    "min_blur": 50.0,             # Laplacian variance — below = blurry/out of focus
-    "min_brightness": 20.0,       # mean pixel value — below = too dark
-    "max_brightness": 235.0,      # above = overexposed/blown out
-    "max_motion_std": 20.0,       # optical flow std — raised for handheld phone footage
-    "duplicate_corr": 0.97,       # histogram correlation — above = near-duplicate scene
+    "min_blur": 40.0,           # median Laplacian variance per window — below = blurry
+    "min_brightness": 15.0,     # mean pixel value — below = too dark
+    "max_brightness": 240.0,    # above = overexposed
+    "max_motion": 15.0,         # hard ceiling — always flag above this
+    "min_motion_flag": 8.0,     # never flag below this (prevents false positives on tripod footage)
+    "motion_relative_factor": 2.5,  # also flag if max_motion > factor × video median
 }
 
 
-def run_rough_cut(video_path: str, scenes: list[dict]) -> dict:
+def run_rough_cut(video_path: str, scenes: list[dict] | None = None) -> dict:
     """
-    Score all scenes for technical quality and return candidates + rejected.
+    Analyse every frame in 0.5s windows.
+    Window max-motion catches shakiness even when only a few frames within it spike.
+    `scenes` accepted for API compatibility but ignored.
     """
-    if not scenes:
+    duration = _probe_duration(video_path)
+    if duration <= 0:
         return _empty_result()
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise ValueError(f"Cannot open video: {video_path}")
 
-    scored = []
-    for scene in scenes:
-        result = _score_scene(cap, scene)
-        scored.append(result)
-
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    frame_scores = _score_all_frames(cap, fps)
     cap.release()
 
-    _flag_duplicates(scored, video_path)
+    if not frame_scores:
+        return _empty_result()
 
-    candidates = [s for s in scored if s["keep"]]
-    rejected = [s for s in scored if not s["keep"]]
+    windows = _score_windows(frame_scores, fps)
+    _apply_thresholds(windows)
+    candidates, rejected_windows = _build_clips(windows, duration)
+
+    raw_dur = round(duration, 2)
+    cand_dur = round(sum(c["duration"] for c in candidates), 2)
 
     return {
-        "total_scenes": len(scored),
+        "total_scenes": len(windows),
         "candidate_count": len(candidates),
-        "rejected_count": len(rejected),
-        "raw_duration_s": round(sum(s["duration"] for s in scored), 2),
-        "candidate_duration_s": round(sum(s["duration"] for s in candidates), 2),
-        "retention_pct": round(len(candidates) / len(scored) * 100) if scored else 0,
-        "rejection_summary": _summarize_rejections(rejected),
+        "rejected_count": len(rejected_windows),
+        "raw_duration_s": raw_dur,
+        "candidate_duration_s": cand_dur,
+        "retention_pct": round(cand_dur / raw_dur * 100) if raw_dur > 0 else 0,
+        "rejection_summary": _summarize_rejections(rejected_windows),
         "candidates": candidates,
-        "rejected": rejected,
+        "rejected": rejected_windows,
     }
 
 
-def _score_scene(cap: cv2.VideoCapture, scene: dict) -> dict:
-    start, end, duration = scene["start_time"], scene["end_time"], scene["duration"]
+def _score_all_frames(cap: cv2.VideoCapture, fps: float) -> list[dict]:
+    """Read every frame, compute blur + brightness + motion (optical flow)."""
+    scores = []
+    prev_gray = None
+    frame_idx = 0
 
-    # Duration check — skip frame reads for obviously short clips
-    if duration < THRESHOLDS["min_duration_s"]:
-        return _make_result(scene, reasons=["too_short"])
-
-    # Sample 3 frames evenly across the scene
-    frames_gray = []
-    blur_scores, brightness_scores = [], []
-
-    for t_frac in (0.25, 0.5, 0.75):
-        cap.set(cv2.CAP_PROP_POS_MSEC, (start + duration * t_frac) * 1000)
+    while True:
         ret, frame = cap.read()
         if not ret:
-            continue
+            break
+
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        frames_gray.append(gray)
-        blur_scores.append(cv2.Laplacian(gray, cv2.CV_64F).var())
-        brightness_scores.append(float(gray.mean()))
+        # Downsample for speed — analysis at 360p is plenty
+        small = cv2.resize(gray, (360, 202))
 
-    if not frames_gray:
-        return _make_result(scene, reasons=["unreadable"])
+        blur = float(cv2.Laplacian(small, cv2.CV_64F).var())
+        brightness = float(small.mean())
 
-    avg_blur = float(np.mean(blur_scores))
-    avg_brightness = float(np.mean(brightness_scores))
-
-    # Motion stability: optical flow std between consecutive sampled frames
-    motion_std = 0.0
-    if len(frames_gray) >= 2:
-        stds = []
-        for i in range(len(frames_gray) - 1):
+        motion = 0.0
+        if prev_gray is not None:
             flow = cv2.calcOpticalFlowFarneback(
-                frames_gray[i], frames_gray[i + 1],
-                None, 0.5, 3, 15, 3, 5, 1.2, 0,
+                prev_gray, small, None, 0.5, 3, 15, 3, 5, 1.2, 0
             )
-            stds.append(float(flow.std()))
-        motion_std = float(np.mean(stds))
+            motion = float(np.sqrt(flow[..., 0] ** 2 + flow[..., 1] ** 2).mean())
 
-    reasons = []
-    if avg_blur < THRESHOLDS["min_blur"]:
-        reasons.append("blurry")
-    if avg_brightness < THRESHOLDS["min_brightness"]:
-        reasons.append("too_dark")
-    elif avg_brightness > THRESHOLDS["max_brightness"]:
-        reasons.append("overexposed")
-    if motion_std > THRESHOLDS["max_motion_std"]:
-        reasons.append("shaky")
+        scores.append({
+            "frame": frame_idx,
+            "time": round(frame_idx / fps, 4),
+            "blur": blur,
+            "brightness": brightness,
+            "motion": motion,
+        })
 
-    return _make_result(
-        scene,
-        blur_score=round(avg_blur, 1),
-        brightness=round(avg_brightness, 1),
-        motion_std=round(motion_std, 2),
-        reasons=reasons,
+        prev_gray = small
+        frame_idx += 1
+
+    return scores
+
+
+def _score_windows(frame_scores: list[dict], fps: float) -> list[dict]:
+    """
+    Group frames into WINDOW_S-second blocks, compute metrics only.
+    Thresholding is done separately in _apply_thresholds so the motion
+    threshold can be set adaptively based on the video's own baseline.
+    Use MAX motion — a single shaky frame should fail the whole window.
+    Use MEDIAN blur — robust to single-frame focus glitches.
+    """
+    window_size = max(1, round(fps * WINDOW_S))
+    windows = []
+
+    for start in range(0, len(frame_scores), window_size):
+        chunk = frame_scores[start:start + window_size]
+        if not chunk:
+            continue
+
+        t_start = chunk[0]["time"]
+        t_end = chunk[-1]["time"] + (1.0 / fps)
+
+        windows.append({
+            "start_time": round(t_start, 3),
+            "end_time": round(t_end, 3),
+            "duration": round(t_end - t_start, 3),
+            "blur_score": round(float(np.median([f["blur"] for f in chunk])), 1),
+            "brightness": round(float(np.mean([f["brightness"] for f in chunk])), 1),
+            "motion_std": round(float(max(f["motion"] for f in chunk)), 2),
+            "reject_reasons": [],
+            "keep": True,
+        })
+
+    return windows
+
+
+def _apply_thresholds(windows: list[dict]) -> None:
+    """
+    Set keep/reject_reasons on each window using an adaptive motion threshold.
+
+    Adaptive motion threshold = min(hard_ceiling, max(min_flag, median × factor))
+    - Still video (median=2): threshold = min(15, max(8, 5)) = 8  → catches subtle end-shakiness
+    - Handheld (median=5):    threshold = min(15, max(8, 12.5)) = 12.5
+    - Generally shaky (median=10): threshold = min(15, max(8, 25)) = 15  → caps at hard ceiling
+    """
+    if not windows:
+        return
+
+    median_motion = float(np.median([w["motion_std"] for w in windows]))
+    adaptive_max = min(
+        THRESHOLDS["max_motion"],
+        max(THRESHOLDS["min_motion_flag"], median_motion * THRESHOLDS["motion_relative_factor"]),
     )
 
+    for w in windows:
+        reasons = []
+        if w["blur_score"] < THRESHOLDS["min_blur"]:       reasons.append("blurry")
+        if w["brightness"] < THRESHOLDS["min_brightness"]: reasons.append("too_dark")
+        if w["brightness"] > THRESHOLDS["max_brightness"]: reasons.append("overexposed")
+        if w["motion_std"] > adaptive_max:                  reasons.append("shaky")
+        w["reject_reasons"] = reasons
+        w["keep"] = len(reasons) == 0
 
-def _flag_duplicates(scored: list[dict], video_path: str):
-    """Compare mid-frame histograms of adjacent passing scenes and flag near-duplicates."""
-    cap = cv2.VideoCapture(video_path)
-    prev_hist = None
-    prev_scene = None
 
-    for scene in scored:
-        if not scene["keep"]:
-            prev_hist = None
-            prev_scene = None
-            continue
+def _build_clips(windows: list[dict], duration: float) -> tuple[list[dict], list[dict]]:
+    """
+    Merge consecutive good windows into clips.
+    Short bad gaps (≤ GAP_FILL_WINDOWS) sandwiched between good runs are absorbed.
+    """
+    if not windows:
+        return [], []
 
-        mid = (scene["start_time"] + scene["end_time"]) / 2
-        cap.set(cv2.CAP_PROP_POS_MSEC, mid * 1000)
-        ret, frame = cap.read()
-        if not ret:
-            continue
+    n = len(windows)
+    filled = [w["keep"] for w in windows]
 
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        hist = cv2.calcHist([gray], [0], None, [64], [0, 256])
-        cv2.normalize(hist, hist)
+    # Gap fill: if a short bad run has good footage on both sides, absorb it
+    i = 0
+    while i < n:
+        if not filled[i]:
+            j = i
+            while j < n and not filled[j]:
+                j += 1
+            run_len = j - i
+            has_good_before = any(filled[:i])
+            has_good_after = any(filled[j:])
+            if run_len <= GAP_FILL_WINDOWS and has_good_before and has_good_after:
+                for k in range(i, j):
+                    filled[k] = True
+            i = j
+        else:
+            i += 1
 
-        if prev_hist is not None:
-            corr = cv2.compareHist(prev_hist, hist, cv2.HISTCMP_CORREL)
-            if corr > THRESHOLDS["duplicate_corr"]:
-                scene["keep"] = False
-                scene["reject_reasons"].append("duplicate")
-                prev_hist = None
-                prev_scene = None
-                continue
+    candidates = []
+    rejected_windows = []
+    i = 0
+    while i < n:
+        state = filled[i]
+        j = i
+        while j < n and filled[j] == state:
+            j += 1
 
-        prev_hist = hist
-        prev_scene = scene
+        chunk = windows[i:j]
+        t_start = chunk[0]["start_time"]
+        t_end = min(chunk[-1]["end_time"], duration)
+        seg_dur = round(t_end - t_start, 3)
 
-    cap.release()
+        seg_blur = round(float(np.mean([w["blur_score"] for w in chunk])), 1)
+        seg_bright = round(float(np.mean([w["brightness"] for w in chunk])), 1)
+        seg_motion = round(float(np.max([w["motion_std"] for w in chunk])), 2)
+
+        reasons = []
+        if not state:
+            seen: dict[str, bool] = {}
+            for w in chunk:
+                for r in w["reject_reasons"]:
+                    seen[r] = True
+            reasons = list(seen.keys()) or ["bad_frames"]
+
+        entry = {
+            "start_time": round(t_start, 3),
+            "end_time": round(t_end, 3),
+            "duration": seg_dur,
+            "blur_score": seg_blur,
+            "brightness": seg_bright,
+            "motion_std": seg_motion,
+            "reject_reasons": reasons,
+            "keep": state and seg_dur >= MIN_CLIP_S,
+        }
+
+        if state and seg_dur >= MIN_CLIP_S:
+            candidates.append(entry)
+        elif not state:
+            rejected_windows.append(entry)
+
+        i = j
+
+    return candidates, rejected_windows
+
+
+def _probe_duration(video_path: str) -> float:
+    result = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", video_path],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        return float(json.loads(result.stdout).get("format", {}).get("duration", 0))
+    return 0.0
 
 
 def _summarize_rejections(rejected: list[dict]) -> dict:
@@ -158,35 +261,9 @@ def _summarize_rejections(rejected: list[dict]) -> dict:
     return summary
 
 
-def _make_result(
-    scene: dict,
-    blur_score: float = 0.0,
-    brightness: float = 0.0,
-    motion_std: float = 0.0,
-    reasons: list[str] | None = None,
-) -> dict:
-    reasons = reasons or []
-    return {
-        "start_time": scene["start_time"],
-        "end_time": scene["end_time"],
-        "duration": scene["duration"],
-        "blur_score": blur_score,
-        "brightness": brightness,
-        "motion_std": motion_std,
-        "reject_reasons": reasons,
-        "keep": len(reasons) == 0,
-    }
-
-
 def _empty_result() -> dict:
     return {
-        "total_scenes": 0,
-        "candidate_count": 0,
-        "rejected_count": 0,
-        "raw_duration_s": 0,
-        "candidate_duration_s": 0,
-        "retention_pct": 0,
-        "rejection_summary": {},
-        "candidates": [],
-        "rejected": [],
+        "total_scenes": 0, "candidate_count": 0, "rejected_count": 0,
+        "raw_duration_s": 0, "candidate_duration_s": 0, "retention_pct": 0,
+        "rejection_summary": {}, "candidates": [], "rejected": [],
     }
