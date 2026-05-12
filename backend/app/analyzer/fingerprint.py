@@ -19,11 +19,21 @@ def synthesize_style_profile(username: str, reels: list[dict]) -> dict:
     claude_synthesis = _call_claude(username, successful)
     edit_recipe = _extract_edit_recipe(claude_synthesis, successful)
 
+    # Persist up to 5 raw transcript samples so the scriptwriter can match voice
+    # without needing the full reel data, which is not stored in profile.json.
+    voice_samples = [
+        r["transcript"]["transcript"][:300].strip()
+        for r in successful
+        if r.get("transcript", {}).get("has_speech")
+        and r["transcript"].get("transcript", "").strip()
+    ][:5]
+
     return {
         "username": username,
         "reels_used": len(successful),
         "synthesis": claude_synthesis,
         "edit_recipe": edit_recipe,
+        "voice_samples": voice_samples,
     }
 
 

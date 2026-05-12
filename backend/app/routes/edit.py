@@ -207,6 +207,11 @@ async def download_fcpxml(job_id: str):
     return _download_file(job_id, "fcpxml_path", "application/xml", f"auto-edit-{job_id[:8]}.fcpxml")
 
 
+@router.get("/download/{job_id}/srt")
+async def download_srt(job_id: str):
+    return _download_file(job_id, "srt_path", "text/plain", f"captions-{job_id[:8]}.srt")
+
+
 @router.get("/download/{job_id}/script")
 async def download_script(job_id: str):
     state = _get_completed_state(job_id)

@@ -123,7 +123,7 @@ export default function EditPanel({ profile }: Props) {
     try {
       const { job_id: footageId } = await uploadFootage(stagedFiles);
       setPhase("processing"); setStep("starting");
-      const { job_id: editId } = await startEdit(profile.username, footageId, topic, true);
+      const { job_id: editId } = await startEdit(profile.username, footageId, topic, false);
       setEditJobId(editId);
       startPolling(editId);
     } catch (e) {

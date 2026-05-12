@@ -44,7 +44,7 @@ def generate_script_and_captions(
     verbal = synthesis.get("verbal_style", {})
 
     beat_lines = _build_beat_sheet(catalog_cuts)
-    voice_block = _build_voice_block(verbal, style_profile.get("reels", []))
+    voice_block = _build_voice_block(verbal, style_profile.get("voice_samples", []))
 
     prompt = (
         f"You are ghostwriting an Instagram Reel script for @{username}. "
@@ -93,7 +93,12 @@ def generate_script_and_captions(
     if footage_topic:
         prompt += f"Topic/context: {footage_topic}\n"
 
+    max_words = int(footage_duration * 2.5)
+
     prompt += (
+        f"\nSCRIPT CONSTRAINTS:\n"
+        f"  Max words (full_script): {max_words} — at ~150 WPM this fills {footage_duration:.0f}s comfortably. "
+        f"Going over makes the voiceover feel rushed.\n\n"
         "\nWrite a spoken script that narrates THESE SPECIFIC VISUALS in @{username}'s voice. "
         "Sync your narration to what's actually shown — reference specific subjects, "
         "actions, and transitions from the beat sheet. The hook (first {hook_duration:.0f}s) should "
@@ -141,31 +146,17 @@ def generate_script_and_captions(
         return {"error": str(e)}
 
 
-def _build_voice_block(verbal: dict, reels: list[dict]) -> str:
+def _build_voice_block(verbal: dict, voice_samples: list[str]) -> str:
     """
     Build a compact voice reference block from real transcript samples.
-    Prefers the synthesized example_phrases; falls back to raw Whisper transcripts
-    from up to 4 reels that had speech.
+    Prefers the synthesized example_phrases from verbal_style (new profiles);
+    falls back to the raw voice_samples saved during profile synthesis.
     """
-    # If synthesis already has curated examples, use those
     examples = verbal.get("example_phrases", [])
     if examples:
         return "\n".join(f'  "{p}"' for p in examples)
 
-    # Otherwise pull raw transcripts (first ~150 chars each, up to 4 reels)
-    samples = []
-    for r in reels:
-        tr = r.get("transcript", {})
-        if not tr.get("has_speech"):
-            continue
-        text = (tr.get("transcript") or "").strip()
-        if not text:
-            continue
-        samples.append(f'  "{text[:150].strip()}"')
-        if len(samples) >= 4:
-            break
-
-    return "\n".join(samples)
+    return "\n".join(f'  "{s[:150]}"' for s in voice_samples if s.strip())
 
 
 def _build_beat_sheet(catalog_cuts: list[dict]) -> str:
