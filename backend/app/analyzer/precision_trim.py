@@ -8,8 +8,8 @@ Processes scenes in blocks of BLOCK_SIZE. Each block receives:
 Claude returns exact start_s / end_s per scene plus a confidence score.
 Low-confidence cuts fall back to a center-cut at target_cut_s length.
 
-Phase 1 metadata used as hard constraints:
-  - key_moment_s: Claude must include this timestamp in the cut
+Phase 1 metadata used as soft anchors:
+  - key_moment_s: Claude should try to include this timestamp, but continuity takes priority
   - action_complete: if False, prefer ending before the action cuts off rather than after
   - start_state / end_state: context about what's happening at segment boundaries
 
@@ -101,7 +101,11 @@ def _trim_block(
             f"Description: {scene['description']}",
         ]
         if key_moment is not None:
-            meta_lines.append(f"Peak moment: {key_moment:.2f}s — your cut MUST include this timestamp")
+            meta_lines.append(
+                f"Peak moment: {key_moment:.2f}s — include this if it flows naturally. "
+                f"If including it would cause a mid-blink, mid-shake, or jarring cut, "
+                f"exclude it and use the highest-energy frames available instead."
+            )
         if start_state:
             meta_lines.append(f"Starts: {start_state}")
         if end_state:
@@ -137,7 +141,7 @@ def _trim_block(
             f"  - start_s / end_s must be within the scene's source range shown above\n"
             f"  - Minimum {MIN_CUT_S}s, maximum {MAX_CUT_S}s per cut\n"
             f"  - Scenes marked [HOOK TEASE]: trim to max {HOOK_MAX_CUT_S}s — find the single peak moment\n"
-            f"  - If a 'Peak moment' timestamp is given, the cut window MUST contain it\n"
+            f"  - If a 'Peak moment' timestamp is given, include it if continuity allows — prioritize smooth, watchable cuts over forcing a specific frame\n"
             f"  - Start after motion begins; end at a visual peak or completed action\n"
             f"  - confidence: 0.0–1.0 (lower if frames are blurry or action unclear)\n\n"
             "Return ONLY valid JSON:\n"
@@ -196,14 +200,6 @@ def _trim_block(
         end_s = max(start_s + MIN_CUT_S, min(end_s, start_s + effective_max, scene["end_s"]))
         dur = end_s - start_s
 
-        # If a key_moment_s was given and Claude's cut window doesn't contain it, nudge the window.
-        key_moment = scene.get("key_moment_s")
-        if key_moment is not None and confidence >= CONFIDENCE_THRESHOLD:
-            start_s, end_s = _nudge_to_include(
-                start_s, end_s, key_moment, scene["start_s"], scene["end_s"], effective_max
-            )
-            dur = end_s - start_s
-
         if confidence < CONFIDENCE_THRESHOLD or dur < MIN_CUT_S:
             cut = _fallback(scene, target_cut_s, f"{note} [fallback: confidence={confidence:.2f}]")
         else:
@@ -230,27 +226,6 @@ def _trim_block(
     cuts.sort(key=lambda c: idx_map.get(c["scene_id"], 999))
 
     return cuts
-
-
-def _nudge_to_include(
-    start_s: float, end_s: float,
-    key_moment: float,
-    src_start: float, src_end: float,
-    max_dur: float,
-) -> tuple[float, float]:
-    """Shift the cut window minimally so that key_moment falls within [start_s, end_s]."""
-    if start_s <= key_moment <= end_s:
-        return start_s, end_s  # already contains it
-
-    dur = end_s - start_s
-    if key_moment < start_s:
-        new_start = max(src_start, key_moment)
-        new_end = min(src_end, new_start + dur)
-    else:
-        new_end = min(src_end, key_moment)
-        new_start = max(src_start, new_end - dur)
-
-    return round(new_start, 3), round(new_end, 3)
 
 
 def _sample_frames(scene: dict, n: int) -> list[tuple[str, str]]:
