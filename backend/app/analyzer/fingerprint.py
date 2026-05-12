@@ -170,11 +170,21 @@ Respond with a JSON object (raw JSON, no markdown):
     "target_total_duration_s": <float>
   }},
 
+  "verbal_style": {{
+    "speaks_to_camera": <true if they address the viewer directly, false if they narrate>,
+    "sentence_length": "<short_punchy|medium|long_explanatory>",
+    "tone": "2-3 words describing their vocal personality (e.g. 'excited, casual, authoritative')",
+    "opener_pattern": "How they typically open — exact pattern or phrase style (e.g. 'question to viewer', 'bold claim', 'sound only')",
+    "closer_pattern": "How they typically close or CTA",
+    "vocabulary": "Notes on their word choices — slang, technical terms, filler words, signature phrases",
+    "example_phrases": ["3-5 short representative phrases or sentence fragments from their transcripts that capture their voice"]
+  }},
+
   "signature_moves": ["4-6 specific techniques that make their editing unmistakably theirs"],
   "avoid": ["3 things that would immediately break their style"],
 
   "replication_instructions": [
-    "Specific, actionable step-by-step instructions for editing new raw cooking footage in this exact style"
+    "Specific, actionable step-by-step instructions for editing new raw footage in this exact style"
   ]
 }}"""})
 

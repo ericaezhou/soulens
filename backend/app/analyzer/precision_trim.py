@@ -3,10 +3,15 @@ Phase 3: Precision Trim — sliding window.
 
 Processes scenes in blocks of BLOCK_SIZE. Each block receives:
   - 1 context scene (last cut from the previous block, for continuity)
-  - BLOCK_SIZE new scenes to trim, with 3-4 frames each
+  - BLOCK_SIZE new scenes to trim, with 4 frames each
 
 Claude returns exact start_s / end_s per scene plus a confidence score.
 Low-confidence cuts fall back to a center-cut at target_cut_s length.
+
+Phase 1 metadata used as hard constraints:
+  - key_moment_s: Claude must include this timestamp in the cut
+  - action_complete: if False, prefer ending before the action cuts off rather than after
+  - start_state / end_state: context about what's happening at segment boundaries
 
 PrecisionCut schema returned per scene:
   scene_id, clip_index, clip_path, start_s, end_s, duration_s, note, confidence
@@ -87,13 +92,29 @@ def _trim_block(
         dur = scene["duration_s"]
         n_frames = min(FRAMES_PER_SCENE, max(2, round(dur / 1.5)))
         hook_note = " [HOOK TEASE — max 2s, pick the single most striking moment]" if scene.get("is_hook") else ""
+        key_moment = scene.get("key_moment_s")
+        start_state = scene.get("start_state", "")
+        end_state = scene.get("end_state", "")
+        action_complete = scene.get("action_complete", True)
+
+        meta_lines = [
+            f"Description: {scene['description']}",
+        ]
+        if key_moment is not None:
+            meta_lines.append(f"Peak moment: {key_moment:.2f}s — your cut MUST include this timestamp")
+        if start_state:
+            meta_lines.append(f"Starts: {start_state}")
+        if end_state:
+            meta_lines.append(f"Ends: {end_state}")
+        if not action_complete:
+            meta_lines.append("Action incomplete: ends mid-action — prefer cutting before the action trails off rather than keeping the abrupt end")
 
         content.append({
             "type": "text",
             "text": (
                 f"\n[{scene['scene_id']}] {scene['shot_type']} · {dur:.1f}s "
                 f"(source: {scene['start_s']:.2f}s → {scene['end_s']:.2f}s){hook_note}\n"
-                f"Description: {scene['description']}"
+                + "\n".join(meta_lines)
             ),
         })
 
@@ -115,7 +136,8 @@ def _trim_block(
             f"Rules:\n"
             f"  - start_s / end_s must be within the scene's source range shown above\n"
             f"  - Minimum {MIN_CUT_S}s, maximum {MAX_CUT_S}s per cut\n"
-            f"  - Scenes marked [HOOK TEASE]: trim to max {HOOK_MAX_CUT_S}s — find the single peak moment within the source range\n"
+            f"  - Scenes marked [HOOK TEASE]: trim to max {HOOK_MAX_CUT_S}s — find the single peak moment\n"
+            f"  - If a 'Peak moment' timestamp is given, the cut window MUST contain it\n"
             f"  - Start after motion begins; end at a visual peak or completed action\n"
             f"  - confidence: 0.0–1.0 (lower if frames are blurry or action unclear)\n\n"
             "Return ONLY valid JSON:\n"
@@ -174,6 +196,14 @@ def _trim_block(
         end_s = max(start_s + MIN_CUT_S, min(end_s, start_s + effective_max, scene["end_s"]))
         dur = end_s - start_s
 
+        # If a key_moment_s was given and Claude's cut window doesn't contain it, nudge the window.
+        key_moment = scene.get("key_moment_s")
+        if key_moment is not None and confidence >= CONFIDENCE_THRESHOLD:
+            start_s, end_s = _nudge_to_include(
+                start_s, end_s, key_moment, scene["start_s"], scene["end_s"], effective_max
+            )
+            dur = end_s - start_s
+
         if confidence < CONFIDENCE_THRESHOLD or dur < MIN_CUT_S:
             cut = _fallback(scene, target_cut_s, f"{note} [fallback: confidence={confidence:.2f}]")
         else:
@@ -202,6 +232,27 @@ def _trim_block(
     return cuts
 
 
+def _nudge_to_include(
+    start_s: float, end_s: float,
+    key_moment: float,
+    src_start: float, src_end: float,
+    max_dur: float,
+) -> tuple[float, float]:
+    """Shift the cut window minimally so that key_moment falls within [start_s, end_s]."""
+    if start_s <= key_moment <= end_s:
+        return start_s, end_s  # already contains it
+
+    dur = end_s - start_s
+    if key_moment < start_s:
+        new_start = max(src_start, key_moment)
+        new_end = min(src_end, new_start + dur)
+    else:
+        new_end = min(src_end, key_moment)
+        new_start = max(src_start, new_end - dur)
+
+    return round(new_start, 3), round(new_end, 3)
+
+
 def _sample_frames(scene: dict, n: int) -> list[tuple[str, str]]:
     start, end = scene["start_s"], scene["end_s"]
     dur = end - start
@@ -215,10 +266,16 @@ def _sample_frames(scene: dict, n: int) -> list[tuple[str, str]]:
 
 
 def _fallback(scene: dict, target_cut_s: float, reason: str) -> dict:
+    # For fallback, center the window on key_moment_s if available, otherwise true midpoint.
+    key_moment = scene.get("key_moment_s")
+    if key_moment is not None:
+        center = max(scene["start_s"], min(key_moment, scene["end_s"]))
+    else:
+        center = (scene["start_s"] + scene["end_s"]) / 2
+
     effective_target = min(target_cut_s, HOOK_MAX_CUT_S) if scene.get("is_hook") else target_cut_s
-    mid = (scene["start_s"] + scene["end_s"]) / 2
     half = effective_target / 2
-    start_s = round(max(scene["start_s"], mid - half), 3)
+    start_s = round(max(scene["start_s"], center - half), 3)
     end_s = round(min(scene["end_s"], start_s + max(effective_target, MIN_CUT_S)), 3)
     if end_s - start_s < MIN_CUT_S:
         end_s = round(min(scene["end_s"], start_s + MIN_CUT_S), 3)
@@ -229,6 +286,6 @@ def _fallback(scene: dict, target_cut_s: float, reason: str) -> dict:
         "start_s": start_s,
         "end_s": end_s,
         "duration_s": round(end_s - start_s, 3),
-        "note": f"[center-cut fallback: {reason}]",
+        "note": f"[key-moment fallback: {reason}]",
         "confidence": 0.0,
     }

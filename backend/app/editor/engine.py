@@ -56,10 +56,11 @@ def apply_style(
     if result.returncode != 0:
         raise RuntimeError(f"FFmpeg error: {result.stderr[-800:]}")
 
-    # Generate FCPXml
-    clips_with_color = [dict(c, color=color if apply_color else {}) for c in cuts]
+    # Generate FCPXml — in passthrough mode cuts=[] so use a single full-duration clip
+    fcpxml_clips = [dict(c, color=color if apply_color else {}) for c in cuts] or \
+                   [{"start": 0.0, "end": round(duration, 3), "duration": round(duration, 3)}]
     generate_fcpxml(
-        clips=clips_with_color,
+        clips=fcpxml_clips,
         source_path=str(Path(footage_path).resolve()),
         output_path=str(fcpxml_path),
         project_name=f"auto-edit-{style_profile.get('username', 'profile')}",

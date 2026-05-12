@@ -10,7 +10,6 @@ from pydantic import BaseModel
 
 from app.config import UPLOAD_DIR
 from app.analyzer.profile_builder import load_profile
-from app.analyzer.video import detect_scenes
 from app.analyzer.scriptwriter import generate_script_and_captions
 from app.analyzer.cataloger import catalog_clips
 from app.analyzer.paper_edit import plan_edit
@@ -382,6 +381,8 @@ async def _run_phase1_and_phase2(job_id: str, edit_dir: Path):
         manifest_scenes = []
         for scene in scenes:
             frame_b64 = scene.pop("_frame_b64", None)
+            scene.pop("_mid_s", None)           # internal fallback fields, not needed downstream
+            scene.pop("_peak_motion_s", None)
             thumb_url = None
             if frame_b64:
                 safe_id = scene["scene_id"].replace("/", "_")
@@ -604,9 +605,9 @@ async def _render_edit(
         caption_plan = None
         if not skip_script:
             _write_state(edit_dir, {"status": "processing", "job_id": job_id, "step": "generating_script"})
-            scenes = await asyncio.to_thread(detect_scenes, str(selects_path))
+            catalog_cuts = _build_catalog_cuts(detailed_cuts, drop, edit_dir)
             script = await asyncio.to_thread(
-                generate_script_and_captions, profile, scenes, duration, topic
+                generate_script_and_captions, profile, catalog_cuts, duration, topic
             )
             caption_plan = script.get("caption_plan") if isinstance(script, dict) else None
 
@@ -627,18 +628,74 @@ async def _render_edit(
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _build_catalog_cuts(detailed_cuts: list[dict], drop: list[int], edit_dir: Path) -> list[dict]:
+    """
+    Merge Phase 3 cut timing with Phase 1 catalog metadata and compute each cut's
+    absolute position in the final edit. Passed to the scriptwriter so it can
+    write narration that references actual visual content beat-by-beat.
+    """
+    try:
+        catalog = json.loads((edit_dir / "catalog.json").read_text())
+        scene_map = {s["scene_id"]: s for s in catalog.get("scenes", [])}
+    except Exception:
+        scene_map = {}
+
+    result = []
+    edit_position = 0.0
+    for i, cut in enumerate(detailed_cuts):
+        if i in drop:
+            continue
+        dur = cut.get("duration_s", cut.get("end_s", 0) - cut.get("start_s", 0))
+        catalog_entry = scene_map.get(cut.get("scene_id", ""), {})
+        result.append({
+            "edit_start_s": round(edit_position, 3),
+            "edit_end_s": round(edit_position + dur, 3),
+            "duration_s": round(dur, 3),
+            "intent": catalog_entry.get("intent", "process"),
+            "subject": catalog_entry.get("subject", ""),
+            "description": catalog_entry.get("description", ""),
+            "start_state": catalog_entry.get("start_state", ""),
+            "end_state": catalog_entry.get("end_state", ""),
+            "shot_type": catalog_entry.get("shot_type", ""),
+            "energy": catalog_entry.get("energy", ""),
+        })
+        edit_position += dur
+    return result
+
+
 def _build_selects_from_cuts(segments: list[dict], output_dir: Path) -> Path:
+    # Probe each unique source clip once so we can clamp end_s to the actual duration.
+    # If end_s overshoots (Phase 3 rounding or ffprobe imprecision), ffmpeg encodes
+    # to the end of the stream then pads video with a frozen last frame while audio
+    # continues — visible as a freeze at the end of the last cut in that clip.
+    clip_durations: dict[str, float] = {}
+    for seg in segments:
+        cp = seg["clip_path"]
+        if cp not in clip_durations:
+            probe = subprocess.run(
+                ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", cp],
+                capture_output=True, text=True,
+            )
+            if probe.returncode == 0:
+                clip_durations[cp] = float(
+                    json.loads(probe.stdout).get("format", {}).get("duration", 9999.0)
+                )
+            else:
+                clip_durations[cp] = 9999.0
+
     segment_paths = []
     for i, seg in enumerate(segments):
         seg_out = output_dir / f"select_{i:03d}.mp4"
-        dur = seg["end_s"] - seg["start_s"]
+        clip_dur = clip_durations.get(seg["clip_path"], 9999.0)
+        # Clamp end_s to (clip_duration - 100ms) to guarantee we never ask ffmpeg
+        # to encode past the last real frame.
+        end_s = min(seg["end_s"], clip_dur - 0.1)
+        start_s = seg["start_s"]
+        dur = max(0.1, end_s - start_s)
         # Always re-encode with -ss after -i for frame-accurate cuts.
-        # -ss before -i seeks to the nearest keyframe and copies codec data,
-        # which causes presentation-timestamp misalignment and single-frame
-        # flashes at every cut boundary when segments are concatenated.
         cmd = [
             "ffmpeg", "-i", seg["clip_path"],
-            "-ss", f"{seg['start_s']:.3f}", "-t", f"{dur:.3f}",
+            "-ss", f"{start_s:.3f}", "-t", f"{dur:.3f}",
             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
             "-c:a", "aac", "-b:a", "192k", str(seg_out), "-y",
         ]
@@ -668,23 +725,30 @@ def _remux_to_mp4(src: Path, job_dir: Path, index: int = 0) -> Path:
 
 
 def _concat_clips(clips: list[Path], job_dir: Path, out_name: str = "footage.mp4") -> Path:
-    list_path = job_dir / "concat_list.txt"
-    list_path.write_text("\n".join(f"file '{p.resolve()}'" for p in clips))
+    # Use filter_complex concat instead of the concat demuxer.
+    # The demuxer copies timestamps as-is, which causes non-monotonic DTS errors when
+    # independently encoded segments have slight timestamp offsets — ffmpeg silently
+    # drops affected segments rather than erroring out.
+    # filter_complex concat resets PTS/DTS per stream so all segments are always included.
     out_path = job_dir / out_name
+    n = len(clips)
+    inputs = []
+    for c in clips:
+        inputs += ["-i", str(c)]
+    filter_v = "".join(f"[{i}:v]" for i in range(n))
+    filter_a = "".join(f"[{i}:a]" for i in range(n))
+    filter_complex = f"{filter_v}concat=n={n}:v=1:a=0[outv];{filter_a}concat=n={n}:v=0:a=1[outa]"
     cmd = [
-        "ffmpeg", "-fflags", "+genpts", "-f", "concat", "-safe", "0",
-        "-i", str(list_path), "-c", "copy", str(out_path), "-y",
+        "ffmpeg", *inputs,
+        "-filter_complex", filter_complex,
+        "-map", "[outv]", "-map", "[outa]",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
+        "-c:a", "aac", "-b:a", "192k",
+        str(out_path), "-y",
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        cmd = [
-            "ffmpeg", "-f", "concat", "-safe", "0", "-i", str(list_path),
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
-            "-c:a", "aac", "-b:a", "192k", str(out_path), "-y",
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise RuntimeError(f"Concat failed: {result.stderr[-400:]}")
+        raise RuntimeError(f"Concat failed: {result.stderr[-400:]}")
     return out_path
 
 

@@ -5,6 +5,8 @@ backend/uploads/
 backend/data/auto_edit.db
 # synthesized style profiles and reel cache
 backend/data/profiles/
+# Phase 1 and rough cut caches
+backend/cache/
 
 # ── Environment / secrets ─────────────────────────────────────────────────────
 .env

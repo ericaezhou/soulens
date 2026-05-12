@@ -9,6 +9,7 @@ For multi-clip sessions, call in three steps:
 
 Single-clip shortcut: run_rough_cut() does all three internally.
 """
+import math
 import cv2
 import numpy as np
 import subprocess
@@ -16,6 +17,7 @@ import json
 
 WINDOW_S = 0.5           # score in 0.5-second blocks
 MIN_CLIP_S = 1.5         # drop good segments shorter than this
+MAX_CANDIDATE_S = 5.0    # split candidates longer than this into equal sub-segments
 GAP_FILL_WINDOWS = 2     # absorb up to 2 consecutive bad windows (~1s) sandwiched between good footage
 FRAME_SAMPLE = 2         # analyze every Nth frame; optical flow normalized by N to keep same scale
 
@@ -23,8 +25,9 @@ THRESHOLDS = {
     "min_blur": 40.0,
     "min_brightness": 15.0,
     "max_brightness": 240.0,
-    "motion_ceiling": 15.0,     # cap on the computed global threshold
-    "motion_floor": 8.0,        # floor on the computed global threshold
+    "max_brightness_std": 40.0,  # std dev of brightness within a window — high = flash/black frame
+    "motion_ceiling": 15.0,      # cap on the computed global threshold
+    "motion_floor": 8.0,         # floor on the computed global threshold
     "motion_relative_factor": 2.5,
 }
 
@@ -106,9 +109,17 @@ def build_clip_candidates(
     """
     Apply thresholds and split windows into candidates + rejected.
     Returns (candidates, rejected_windows, summary_dict).
+
+    Each candidate gets two extra fields:
+      peak_motion_s — timestamp of the highest-motion window within that segment
+                       (optical flow peak, passed downstream as a key_moment_s hint)
+    Long candidates (> MAX_CANDIDATE_S) are split into equal sub-segments so that
+    Phase 1 / Phase 3 always receive focused windows rather than sprawling clips.
     """
     _apply_thresholds(windows, motion_threshold)
     candidates, rejected = _build_clips(windows, duration)
+    candidates = _split_long_candidates(candidates, windows)
+    _add_peak_motion(candidates, windows)
 
     raw_dur = round(duration, 2)
     cand_dur = round(sum(c["duration"] for c in candidates), 2)
@@ -210,12 +221,14 @@ def _score_windows(frame_scores: list[dict], fps: float) -> list[dict]:
         t_start = chunk[0]["time"]
         t_end = chunk[-1]["time"] + (1.0 / fps)
 
+        brightnesses = [f["brightness"] for f in chunk]
         windows.append({
             "start_time": round(t_start, 3),
             "end_time": round(t_end, 3),
             "duration": round(t_end - t_start, 3),
             "blur_score": round(float(np.median([f["blur"] for f in chunk])), 1),
-            "brightness": round(float(np.mean([f["brightness"] for f in chunk])), 1),
+            "brightness": round(float(np.mean(brightnesses)), 1),
+            "brightness_std": round(float(np.std(brightnesses)), 1),
             "motion_std": round(float(max(f["motion"] for f in chunk)), 2),
             "reject_reasons": [],
             "keep": True,
@@ -227,10 +240,11 @@ def _score_windows(frame_scores: list[dict], fps: float) -> list[dict]:
 def _apply_thresholds(windows: list[dict], motion_threshold: float) -> None:
     for w in windows:
         reasons = []
-        if w["blur_score"] < THRESHOLDS["min_blur"]:       reasons.append("blurry")
-        if w["brightness"] < THRESHOLDS["min_brightness"]: reasons.append("too_dark")
-        if w["brightness"] > THRESHOLDS["max_brightness"]: reasons.append("overexposed")
-        if w["motion_std"] > motion_threshold:              reasons.append("shaky")
+        if w["blur_score"] < THRESHOLDS["min_blur"]:             reasons.append("blurry")
+        if w["brightness"] < THRESHOLDS["min_brightness"]:       reasons.append("too_dark")
+        if w["brightness"] > THRESHOLDS["max_brightness"]:       reasons.append("overexposed")
+        if w["brightness_std"] > THRESHOLDS["max_brightness_std"]: reasons.append("flash")
+        if w["motion_std"] > motion_threshold:                    reasons.append("shaky")
         w["reject_reasons"] = reasons
         w["keep"] = len(reasons) == 0
 
@@ -301,6 +315,65 @@ def _build_clips(windows: list[dict], duration: float) -> tuple[list[dict], list
         i = j
 
     return candidates, rejected_windows
+
+
+def _split_long_candidates(candidates: list[dict], windows: list[dict]) -> list[dict]:
+    """Split any candidate longer than MAX_CANDIDATE_S into sub-segments.
+
+    Split points are placed at the lowest-motion window near each target boundary
+    (±1s search) so we avoid cutting mid-action. Falls back to exact time split
+    if no windows are found in the search range.
+    """
+    result = []
+    for c in candidates:
+        if c["duration"] <= MAX_CANDIDATE_S:
+            result.append(c)
+            continue
+
+        n = math.ceil(c["duration"] / MAX_CANDIDATE_S)
+        target_dur = c["duration"] / n
+
+        # Build split boundaries by finding quiet moments near each target split point
+        boundaries = [c["start_time"]]
+        for i in range(1, n):
+            target_t = c["start_time"] + i * target_dur
+            nearby = [
+                w for w in windows
+                if w["start_time"] >= target_t - 1.0
+                and w["end_time"] <= target_t + 1.0
+                and w["start_time"] >= c["start_time"]
+                and w["end_time"] <= c["end_time"]
+            ]
+            if nearby:
+                quietest = min(nearby, key=lambda w: w["motion_std"])
+                boundaries.append(round(quietest["end_time"], 3))
+            else:
+                boundaries.append(round(target_t, 3))
+        boundaries.append(c["end_time"])
+
+        for i in range(len(boundaries) - 1):
+            sub_start = boundaries[i]
+            sub_end = boundaries[i + 1]
+            dur = round(sub_end - sub_start, 3)
+            if dur < MIN_CLIP_S:
+                continue
+            result.append({**c, "start_time": sub_start, "end_time": sub_end, "duration": dur})
+
+    return result
+
+
+def _add_peak_motion(candidates: list[dict], windows: list[dict]) -> None:
+    """Add peak_motion_s to each candidate — the timestamp of its highest-motion window."""
+    for c in candidates:
+        in_range = [
+            w for w in windows
+            if w["start_time"] >= c["start_time"] - 0.01 and w["end_time"] <= c["end_time"] + 0.01
+        ]
+        if in_range:
+            best = max(in_range, key=lambda w: w["motion_std"])
+            c["peak_motion_s"] = round((best["start_time"] + best["end_time"]) / 2, 3)
+        else:
+            c["peak_motion_s"] = round((c["start_time"] + c["end_time"]) / 2, 3)
 
 
 def _probe_duration(video_path: str) -> float:

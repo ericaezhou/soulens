@@ -8,7 +8,7 @@ with the hook scene duplicated to front as a short tease.
 
 Output schema:
   hook_scene_id  — scene_id of the best hook moment (will be duplicated to front)
-  drop           — scene_ids to exclude (redundant, weak, over-budget)
+  drop           — scene_ids to exclude (redundant, weak, incomplete, over-budget)
   reasoning      — 3-4 sentence plan shown in the Paper Edit Review UI
 """
 import re
@@ -21,13 +21,13 @@ _MODEL = "claude-sonnet-4-6"
 
 def plan_edit(scenes: list[dict], profile: dict) -> dict:
     username = profile.get("username", "this creator")
-    recipe = profile.get("edit_recipe", {})
     synthesis = profile.get("synthesis", {})
-    target_dur = recipe.get("target_duration_s", 25)
-
     total_dur = sum(s["duration_s"] for s in scenes)
     catalog_text = _build_catalog_text(scenes)
     style_text = _build_style_text(synthesis)
+
+    # Check if any scene has a visible face — used to give Claude the right constraint
+    any_face = any(s.get("face_visible", False) for s in scenes)
 
     prompt = (
         f"You are selecting clips for an Instagram Reel for @{username}.\n\n"
@@ -38,12 +38,23 @@ def plan_edit(scenes: list[dict], profile: dict) -> dict:
         "The hook scene will be shown as a short 2-second tease at the very front, "
         "then the full edit plays in filmed order.\n\n"
         "Rules:\n"
-        "  - hook_scene_id: the single most visually striking moment to tease at the open "
+        "  - hook_scene_id: the single most visually striking moment for the opening tease "
         "(it also stays in its natural position in the body — do not put it in drop)\n"
-        "  - drop: any scene that doesn't add something new — redundant angles, "
-        "repeated dishes, weak energy, or shots too similar to another kept scene. "
-        "A tight reel is better than a complete one\n"
-        "  - reasoning: 3-4 sentences — why this hook, what you kept vs dropped and why, "
+        "  - drop: ONLY drop a scene if another kept scene already shows the exact same subject "
+        "doing the exact same action — use the Subject field to judge. "
+        "Two scenes with the same intent tag are NOT automatically redundant if their subjects differ; "
+        "each distinct subject adds its own beat to the story. "
+        "Drop a scene only when keeping it would show the viewer nothing new. "
+        "Also drop scenes where action_complete=false ONLY if a complete version of that same action exists. "
+        "When in doubt, keep — a missing visual beat is worse than a reel that runs a few seconds long\n"
+        "  - Keep at least one establishment scene so the viewer has context before the payoff. "
+        "Keep at least one payoff scene — the money shot matters\n"
+        + (
+            "  - At least one face-visible scene exists — try to keep one for viewer connection\n"
+            if any_face else ""
+        )
+        + "  - reasoning: 3-4 sentences — why this hook, what you kept vs dropped and why "
+        "(reference intent/subject when explaining drops), "
         "how the remaining scenes tell a complete story in their natural order\n\n"
         "Return ONLY valid JSON:\n"
         "{\n"
@@ -89,10 +100,20 @@ def plan_edit(scenes: list[dict], profile: dict) -> dict:
 def _build_catalog_text(scenes: list[dict]) -> str:
     lines = []
     for s in scenes:
-        dot = "●" if s["energy"] == "high" else "◑" if s["energy"] == "medium" else "○"
+        energy_dot = "●" if s["energy"] == "high" else "◑" if s["energy"] == "medium" else "○"
+        intent = s.get("intent", "process")
+        subject = s.get("subject", "")
+        action_complete = s.get("action_complete", True)
+        face = " 👤" if s.get("face_visible") else ""
+        camera = s.get("camera_motion", "static")
+        incomplete = " [incomplete action]" if not action_complete else ""
+
         lines.append(
-            f"  [{s['scene_id']}] Clip {s['clip_index']} · {s['duration_s']:.1f}s · "
-            f"{s['shot_type']} · {dot} {s['energy']} — {s['description']}"
+            f"  [{s['scene_id']}] {intent.upper()} · {s['shot_type']} · {s['duration_s']:.1f}s · "
+            f"{energy_dot} {s['energy']}{face} · {camera}{incomplete}\n"
+            f"    Subject: {subject}\n"
+            f"    {s.get('description', '')}\n"
+            f"    Start: {s.get('start_state', '')} | End: {s.get('end_state', '')}"
         )
     return "\n".join(lines)
 

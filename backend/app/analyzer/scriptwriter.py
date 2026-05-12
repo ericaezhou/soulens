@@ -1,26 +1,36 @@
 """
-Generates two things for new footage:
-1. A spoken script: hook + body + CTA, written in the creator's voice
-2. A caption plan: what text overlays to show, when, and where
+Generates spoken script + caption plan grounded in the actual visual edit.
+
+Accepts catalog_cuts — the Phase 3 precision cuts enriched with Phase 1 metadata
+(intent, subject, description, start_state, end_state) and their absolute timestamps
+in the final edit. This lets Claude write narration that syncs beat-by-beat with
+what's on screen rather than reasoning from generic scene timing alone.
 """
+import re
 import json
 import anthropic
-from app.config import ANTHROPIC_API_KEY
+import os
+
+
+_MODEL = "claude-sonnet-4-6"
 
 
 def generate_script_and_captions(
     style_profile: dict,
-    footage_scenes: list[dict],
+    catalog_cuts: list[dict],
     footage_duration: float,
     footage_topic: str = "",
 ) -> dict:
     """
-    style_profile: the full profile dict (with synthesis + edit_recipe)
-    footage_scenes: scene list from analyzing the raw footage
-    footage_duration: total seconds of raw footage
-    footage_topic: optional hint from user about what the footage is about
+    style_profile   : full profile dict (synthesis + edit_recipe)
+    catalog_cuts    : list of dicts — each cut has:
+                        edit_start_s, edit_end_s, duration_s (position in final edit)
+                        intent, subject, description, start_state, end_state (Phase 1)
+    footage_duration: total seconds of the final edit
+    footage_topic   : optional topic hint from user
     """
-    if not ANTHROPIC_API_KEY:
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not api_key:
         return {"error": "No Anthropic API key configured"}
 
     synthesis = style_profile.get("synthesis", {})
@@ -31,81 +41,150 @@ def generate_script_and_captions(
     hook_duration = recipe.get("hook_duration_s", 3.0)
     text_recipe = synthesis.get("text_recipe", {})
     structure = synthesis.get("structure_template", {})
+    verbal = synthesis.get("verbal_style", {})
 
-    # Describe the footage content from scene analysis
-    scene_descriptions = []
-    for i, s in enumerate(footage_scenes[:15]):
-        scene_descriptions.append(
-            f"Scene {i+1}: {s['start_time']:.1f}s–{s['end_time']:.1f}s ({s['duration']:.1f}s)"
+    beat_lines = _build_beat_sheet(catalog_cuts)
+    voice_block = _build_voice_block(verbal, style_profile.get("reels", []))
+
+    prompt = (
+        f"You are ghostwriting an Instagram Reel script for @{username}. "
+        f"Your job is to sound exactly like them — not like a generic creator.\n\n"
+        "CREATOR VOICE & STYLE:\n"
+        f"  Archetype: {synthesis.get('creator_archetype', '')}\n"
+        f"  Vibe: {synthesis.get('vibe', '')}\n"
+    )
+
+    if verbal:
+        prompt += (
+            f"  Speaks to camera: {verbal.get('speaks_to_camera', True)}\n"
+            f"  Sentence length: {verbal.get('sentence_length', '')}\n"
+            f"  Tone: {verbal.get('tone', '')}\n"
+            f"  Opener pattern: {verbal.get('opener_pattern', '')}\n"
+            f"  Closer pattern: {verbal.get('closer_pattern', '')}\n"
+            f"  Vocabulary notes: {verbal.get('vocabulary', '')}\n"
         )
+        if verbal.get("example_phrases"):
+            prompt += f"  Example phrases: {' | '.join(verbal['example_phrases'])}\n"
 
-    prompt = f"""You are writing content for @{username}, an Instagram Reel creator.
+    if voice_block:
+        prompt += f"\nACTUAL TRANSCRIPT SAMPLES (their real words — study the cadence and vocabulary):\n{voice_block}\n"
 
-THEIR STYLE PROFILE:
-- Content type: {synthesis.get('content_type', 'lifestyle')}
-- Creator archetype: {synthesis.get('creator_archetype', '')}
-- Vibe: {synthesis.get('vibe', '')}
-- Hook style: {structure.get('hook_style', '')}
-- Body structure: {structure.get('body_structure', '')}
-- Outro style: {structure.get('outro_style', '')}
-- Text usage: {text_recipe.get('description', '')}
-- Text style: {text_recipe.get('style', 'minimal')}
+    prompt += (
+        f"\nEDIT STRUCTURE:\n"
+        f"  Hook style: {structure.get('hook_style', '')}\n"
+        f"  Body structure: {structure.get('body_structure', '')}\n"
+        f"  Outro style: {structure.get('outro_style', '')}\n"
+        f"  Text overlays: {text_recipe.get('description', 'minimal')}\n"
+        f"  Text style: {text_recipe.get('style', 'minimal')}\n"
+    )
 
-RAW FOOTAGE:
-- Total duration: {footage_duration:.0f}s
-- Number of scenes detected: {len(footage_scenes)}
-- Scene breakdown: {chr(10).join(scene_descriptions)}
-{f'- Topic/context: {footage_topic}' if footage_topic else ''}
+    if synthesis.get("signature_moves"):
+        prompt += f"  Signature moves: {', '.join(synthesis['signature_moves'])}\n"
+    if synthesis.get("avoid"):
+        prompt += f"  Avoid: {', '.join(synthesis['avoid'])}\n"
 
-TARGET OUTPUT: ~{target_duration:.0f}s reel (hook: first {hook_duration:.0f}s)
+    prompt += (
+        f"\nVISUAL BEAT SHEET (what's on screen in this edit, in order):\n"
+        f"{beat_lines}\n\n"
+        f"Edit duration: {footage_duration:.1f}s  |  Target reel: ~{target_duration:.0f}s  |  "
+        f"Hook window: first {hook_duration:.0f}s\n"
+    )
 
-Generate a JSON object (raw JSON, no markdown) with:
-{{
-  "spoken_script": {{
-    "hook": "Exact words for the first {hook_duration:.0f} seconds — must grab attention immediately in their voice",
-    "body": "What they say/narrate through the main section — match their tone exactly",
-    "cta": "Their typical call-to-action style (follow, comment, share — match how they naturally do it)",
-    "full_script": "Complete script from hook to CTA as one block, written naturally in their voice",
-    "tone_notes": "1-2 sentences describing the tone/energy to deliver this in"
-  }},
-  "caption_plan": [
-    {{
-      "timestamp_s": <when this caption appears, float>,
-      "duration_s": <how long it stays on screen, float>,
-      "text": "Exact text to display",
-      "placement": "<lower_third | upper_third | center>",
-      "style_note": "bold/minimal/all-caps etc."
-    }}
-  ],
-  "hashtag_suggestions": ["5-8 relevant hashtags in their niche"],
-  "reel_caption": "The Instagram caption text they'd post with this reel (their typical caption style)"
-}}
+    if footage_topic:
+        prompt += f"Topic/context: {footage_topic}\n"
 
-Rules:
-- Write in @{username}'s voice — match the energy and style from their profile
-- The spoken_script should feel natural to read aloud on camera
-- caption_plan should only include text if {text_recipe.get('uses_text', True)} (their text usage pattern)
-- Space captions naturally — don't overwhelm the screen
-- If they don't use text overlays, return an empty caption_plan array"""
+    prompt += (
+        "\nWrite a spoken script that narrates THESE SPECIFIC VISUALS in @{username}'s voice. "
+        "Sync your narration to what's actually shown — reference specific subjects, "
+        "actions, and transitions from the beat sheet. The hook (first {hook_duration:.0f}s) should "
+        "match the opening visual beat. Caption timestamps must align with the visual beats above.\n\n"
+        "Return ONLY valid JSON:\n"
+        "{{\n"
+        '  "spoken_script": {{\n'
+        '    "hook": "Exact words for the first {hook_duration:.0f}s — must match the opening visual",\n'
+        '    "body": "Narration through the main section — reference the specific things shown",\n'
+        '    "cta": "Their natural call-to-action style",\n'
+        '    "full_script": "Complete script hook→body→cta as one flowing block",\n'
+        '    "tone_notes": "1-2 sentences on tone/energy for delivery"\n'
+        "  }},\n"
+        '  "caption_plan": [\n'
+        "    {{\n"
+        '      "timestamp_s": <float — must match a visual beat start time from the beat sheet>,\n'
+        '      "duration_s": <float>,\n'
+        '      "text": "Exact overlay text",\n'
+        '      "placement": "<lower_third | upper_third | center>",\n'
+        '      "style_note": "bold/minimal/all-caps etc."\n'
+        "    }}\n"
+        "  ],\n"
+        '  "hashtag_suggestions": ["5-8 relevant hashtags"],\n'
+        '  "reel_caption": "Instagram caption in their typical style"\n'
+        "}}"
+    ).format(username=username, hook_duration=hook_duration)
 
+    client = anthropic.Anthropic(api_key=api_key)
     try:
-        from dotenv import load_dotenv
-        import os as _os
-        load_dotenv(override=True)
-        api_key = _os.getenv("ANTHROPIC_API_KEY", "") or ANTHROPIC_API_KEY
-        client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=_MODEL,
             max_tokens=2000,
             messages=[{"role": "user", "content": prompt}],
         )
-        raw = response.content[0].text.strip()
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        return json.loads(raw)
+        text = response.content[0].text.strip()
+        text = re.sub(r"```(?:json)?\s*", "", text).strip()
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if not match:
+            return {"error": f"Scriptwriter returned no JSON: {text[:300]}"}
+        json_str = re.sub(r"[\x00-\x1f\x7f]", " ", match.group())
+        return json.loads(json_str)
     except json.JSONDecodeError as e:
         return {"error": f"Claude returned invalid JSON: {e}"}
     except Exception as e:
         return {"error": str(e)}
+
+
+def _build_voice_block(verbal: dict, reels: list[dict]) -> str:
+    """
+    Build a compact voice reference block from real transcript samples.
+    Prefers the synthesized example_phrases; falls back to raw Whisper transcripts
+    from up to 4 reels that had speech.
+    """
+    # If synthesis already has curated examples, use those
+    examples = verbal.get("example_phrases", [])
+    if examples:
+        return "\n".join(f'  "{p}"' for p in examples)
+
+    # Otherwise pull raw transcripts (first ~150 chars each, up to 4 reels)
+    samples = []
+    for r in reels:
+        tr = r.get("transcript", {})
+        if not tr.get("has_speech"):
+            continue
+        text = (tr.get("transcript") or "").strip()
+        if not text:
+            continue
+        samples.append(f'  "{text[:150].strip()}"')
+        if len(samples) >= 4:
+            break
+
+    return "\n".join(samples)
+
+
+def _build_beat_sheet(catalog_cuts: list[dict]) -> str:
+    lines = []
+    for cut in catalog_cuts:
+        t_start = cut.get("edit_start_s", 0.0)
+        t_end = cut.get("edit_end_s", t_start + cut.get("duration_s", 0.0))
+        intent = cut.get("intent", "process").upper()
+        subject = cut.get("subject", "")
+        description = cut.get("description", "")
+        start_state = cut.get("start_state", "")
+        end_state = cut.get("end_state", "")
+        shot = cut.get("shot_type", "")
+        energy = cut.get("energy", "")
+
+        detail = description or f"{start_state} → {end_state}"
+        lines.append(
+            f"  {t_start:.2f}s–{t_end:.2f}s [{intent}] {shot} · {subject}"
+            + (f" | {detail}" if detail.strip(" → ") else "")
+            + (f" ({energy} energy)" if energy else "")
+        )
+    return "\n".join(lines) if lines else "  (no scene data available)"
