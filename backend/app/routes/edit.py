@@ -1,20 +1,28 @@
 import json
 import uuid
+import base64
 import asyncio
 import subprocess
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from app.config import UPLOAD_DIR
 from app.analyzer.profile_builder import load_profile
 from app.analyzer.video import detect_scenes
 from app.analyzer.scriptwriter import generate_script_and_captions
+from app.analyzer.cataloger import catalog_clips
+from app.analyzer.paper_edit import plan_edit
+from app.analyzer.precision_trim import trim_scenes
+from app.analyzer.frames import grab_frame
 from app.editor.engine import apply_style
-from app.editor.rough_cut import run_rough_cut
+from app.editor.rough_cut import score_clip, compute_global_threshold, build_clip_candidates
 
 router = APIRouter(prefix="/edit", tags=["edit"])
 
+
+# ── Upload ────────────────────────────────────────────────────────────────────
 
 @router.post("/upload")
 async def upload_footage(files: list[UploadFile] = File(...)):
@@ -25,19 +33,25 @@ async def upload_footage(files: list[UploadFile] = File(...)):
     saved = []
     for i, f in enumerate(files):
         ext = Path(f.filename or "video.mp4").suffix or ".mp4"
-        p = job_dir / f"clip_{i:02d}{ext}"
+        p = job_dir / f"raw_{i:02d}{ext}"
         p.write_bytes(await f.read())
-        saved.append(p)
+        saved.append((i, p))
 
-    if len(saved) == 1:
-        # Always remux to mp4 so OpenCV/PySceneDetect can read HEVC MOV files
-        footage_path = await asyncio.to_thread(_remux_to_mp4, saved[0], job_dir)
-    else:
-        footage_path = await asyncio.to_thread(_concat_clips, saved, job_dir)
+    clip_paths = []
+    for i, src in saved:
+        remuxed = await asyncio.to_thread(_remux_to_mp4, src, job_dir, i)
+        clip_paths.append(str(remuxed))
 
-    _write_state(job_dir, {"status": "ready", "job_id": job_id, "footage_path": str(footage_path), "clip_count": len(saved)})
-    return {"job_id": job_id, "status": "ready", "clip_count": len(saved)}
+    _write_state(job_dir, {
+        "status": "ready",
+        "job_id": job_id,
+        "clip_paths": clip_paths,
+        "clip_count": len(clip_paths),
+    })
+    return {"job_id": job_id, "status": "ready", "clip_count": len(clip_paths)}
 
+
+# ── Start edit ────────────────────────────────────────────────────────────────
 
 @router.post("/start")
 async def start_edit(
@@ -47,35 +61,140 @@ async def start_edit(
     topic: str = Form(""),
     skip_script: bool = Form(False),
 ):
-    # Validate profile exists
     profile = load_profile(username)
     if not profile:
-        raise HTTPException(status_code=404, detail=f"No style profile found for @{username}. Connect the profile first.")
+        raise HTTPException(404, f"No style profile found for @{username}.")
 
-    # Validate footage exists
     footage_state_path = UPLOAD_DIR / footage_job_id / "state.json"
     if not footage_state_path.exists():
-        raise HTTPException(status_code=404, detail="Footage job not found")
+        raise HTTPException(404, "Footage job not found")
 
     footage_state = json.loads(footage_state_path.read_text())
-    footage_path = footage_state.get("footage_path")
-    if not footage_path or not Path(footage_path).exists():
-        raise HTTPException(status_code=404, detail="Footage file not found")
+    clip_paths = footage_state.get("clip_paths")
+    if not clip_paths:
+        legacy = footage_state.get("footage_path")
+        if legacy and Path(legacy).exists():
+            clip_paths = [legacy]
+    if not clip_paths:
+        raise HTTPException(404, "Footage files not found")
+
+    for p in clip_paths:
+        if not Path(p).exists():
+            raise HTTPException(404, f"Clip file missing: {Path(p).name}")
 
     edit_job_id = str(uuid.uuid4())
     edit_dir = UPLOAD_DIR / edit_job_id
     edit_dir.mkdir(parents=True, exist_ok=True)
-    _write_state(edit_dir, {"status": "processing", "job_id": edit_job_id, "step": "analyzing_footage"})
+    _write_state(edit_dir, {"status": "processing", "job_id": edit_job_id, "step": "starting"})
 
-    background_tasks.add_task(_run_edit, edit_job_id, footage_path, profile, topic, edit_dir, skip_script)
+    background_tasks.add_task(
+        _run_rough_cut,
+        edit_job_id, clip_paths, profile, topic, edit_dir, skip_script,
+    )
     return {"job_id": edit_job_id, "status": "processing"}
 
+
+# ── Proceed past rough cut → Phase 1 + Phase 2 ───────────────────────────────
+
+@router.post("/proceed/{job_id}")
+async def proceed_edit(job_id: str, background_tasks: BackgroundTasks):
+    state_path = UPLOAD_DIR / job_id / "state.json"
+    if not state_path.exists():
+        raise HTTPException(404, "Job not found")
+
+    state = json.loads(state_path.read_text())
+    if state.get("status") != "awaiting_rough_cut_review":
+        raise HTTPException(400, f"Job is not awaiting rough cut review (status: {state.get('status')})")
+
+    edit_dir = UPLOAD_DIR / job_id
+    _write_state(edit_dir, {
+        "status": "processing",
+        "job_id": job_id,
+        "step": "cataloging",
+        "rough_cut": state.get("rough_cut"),
+        "_config": state.get("_config"),
+        "_clip_paths": state.get("_clip_paths"),
+    })
+
+    background_tasks.add_task(_run_phase1_and_phase2, job_id, edit_dir)
+    return {"status": "processing"}
+
+
+# ── Confirm scenes (user approved the paper edit) → Phase 3 ──────────────────
+
+class ConfirmScenesRequest(BaseModel):
+    scene_ids: list[str]
+
+
+@router.post("/confirm_scenes/{job_id}")
+async def confirm_scenes(job_id: str, body: ConfirmScenesRequest, background_tasks: BackgroundTasks):
+    state_path = UPLOAD_DIR / job_id / "state.json"
+    if not state_path.exists():
+        raise HTTPException(404, "Job not found")
+
+    state = json.loads(state_path.read_text())
+    if state.get("status") != "awaiting_paper_edit_review":
+        raise HTTPException(400, f"Job is not awaiting scene confirmation (status: {state.get('status')})")
+
+    if not body.scene_ids:
+        raise HTTPException(400, "scene_ids must not be empty")
+
+    edit_dir = UPLOAD_DIR / job_id
+    _write_state(edit_dir, {
+        "status": "processing",
+        "job_id": job_id,
+        "step": "trimming_cuts",
+        "rough_cut": state.get("rough_cut"),
+        "_config": state.get("_config"),
+        "_approved_scene_ids": body.scene_ids,
+    })
+
+    background_tasks.add_task(_run_phase3, job_id, edit_dir)
+    return {"status": "processing"}
+
+
+# ── Finalize: render after user approves detailed cuts ────────────────────────
+
+class FinalizeRequest(BaseModel):
+    drop: list[int] = []
+
+
+@router.post("/finalize/{job_id}")
+async def finalize_edit(job_id: str, body: FinalizeRequest, background_tasks: BackgroundTasks):
+    state_path = UPLOAD_DIR / job_id / "state.json"
+    if not state_path.exists():
+        raise HTTPException(404, "Job not found")
+
+    state = json.loads(state_path.read_text())
+    if state.get("status") != "awaiting_detailed_cut_review":
+        raise HTTPException(400, f"Job is not awaiting finalization (status: {state.get('status')})")
+
+    config = state.get("_config", {})
+    profile = load_profile(config.get("username", ""))
+    if not profile:
+        raise HTTPException(404, "Profile no longer found")
+
+    detailed_cuts = state.get("detailed_cuts", [])
+    edit_dir = UPLOAD_DIR / job_id
+    _write_state(edit_dir, {"status": "processing", "job_id": job_id, "step": "building_selects"})
+
+    background_tasks.add_task(
+        _render_edit,
+        job_id, edit_dir, profile,
+        detailed_cuts, body.drop,
+        config.get("topic", ""),
+        config.get("skip_script", True),
+    )
+    return {"status": "processing"}
+
+
+# ── Status / download ─────────────────────────────────────────────────────────
 
 @router.get("/status/{job_id}")
 async def edit_status(job_id: str):
     state_path = UPLOAD_DIR / job_id / "state.json"
     if not state_path.exists():
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(404, "Job not found")
     return json.loads(state_path.read_text())
 
 
@@ -94,163 +213,499 @@ async def download_script(job_id: str):
     state = _get_completed_state(job_id)
     script = state.get("result", {}).get("script", {})
     if not script:
-        raise HTTPException(status_code=404, detail="No script available")
+        raise HTTPException(404, "No script available")
 
-    # Build a readable text file
     lines = []
     spoken = script.get("spoken_script", {})
     if spoken:
         lines += [
-            "=== HOOK ===",
-            spoken.get("hook", ""),
-            "",
-            "=== BODY ===",
-            spoken.get("body", ""),
-            "",
-            "=== CTA ===",
-            spoken.get("cta", ""),
-            "",
-            "=== FULL SCRIPT ===",
-            spoken.get("full_script", ""),
-            "",
-            f"TONE: {spoken.get('tone_notes', '')}",
-            "",
+            "=== HOOK ===", spoken.get("hook", ""), "",
+            "=== BODY ===", spoken.get("body", ""), "",
+            "=== CTA ===", spoken.get("cta", ""), "",
+            "=== FULL SCRIPT ===", spoken.get("full_script", ""), "",
+            f"TONE: {spoken.get('tone_notes', '')}", "",
         ]
     lines += [
-        "=== INSTAGRAM CAPTION ===",
-        script.get("reel_caption", ""),
-        "",
-        "=== HASHTAGS ===",
-        " ".join(script.get("hashtag_suggestions", [])),
+        "=== INSTAGRAM CAPTION ===", script.get("reel_caption", ""), "",
+        "=== HASHTAGS ===", " ".join(script.get("hashtag_suggestions", [])),
     ]
 
-    content = "\n".join(lines)
     script_path = UPLOAD_DIR / job_id / "script.txt"
-    script_path.write_text(content)
-
+    script_path.write_text("\n".join(lines))
     return FileResponse(str(script_path), media_type="text/plain", filename=f"script-{job_id[:8]}.txt")
 
 
-def _download_file(job_id: str, path_key: str, media_type: str, filename: str) -> FileResponse:
-    state = _get_completed_state(job_id)
-    file_path = state.get("result", {}).get(path_key)
-    if not file_path or not Path(file_path).exists():
-        raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(file_path, media_type=media_type, filename=filename)
+# ── Pipeline: rough cut → pause for review ────────────────────────────────────
 
-
-def _get_completed_state(job_id: str) -> dict:
-    state_path = UPLOAD_DIR / job_id / "state.json"
-    if not state_path.exists():
-        raise HTTPException(status_code=404, detail="Job not found")
-    state = json.loads(state_path.read_text())
-    if state.get("status") != "completed":
-        raise HTTPException(status_code=400, detail=f"Edit not complete (status: {state.get('status')})")
-    return state
-
-
-async def _run_edit(job_id: str, footage_path: str, profile: dict, topic: str, edit_dir: Path, skip_script: bool = False):
+async def _run_rough_cut(
+    job_id: str,
+    clip_paths: list[str],
+    profile: dict,
+    topic: str,
+    edit_dir: Path,
+    skip_script: bool,
+):
     try:
-        # Step 1: detect scenes + universal rough cut (free, no API)
         _write_state(edit_dir, {"status": "processing", "job_id": job_id, "step": "rough_cut"})
 
-        probe_cmd = ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", footage_path]
-        probe = subprocess.run(probe_cmd, capture_output=True, text=True)
-        duration = 30.0
-        if probe.returncode == 0:
-            duration = float(json.loads(probe.stdout).get("format", {}).get("duration", 30))
+        score_results = await asyncio.gather(*[
+            asyncio.to_thread(score_clip, p) for p in clip_paths
+        ])
+        scored = [(clip_paths[i], score_results[i][0], score_results[i][1]) for i in range(len(clip_paths))]
 
-        scenes = await asyncio.to_thread(detect_scenes, footage_path)
-        rough = await asyncio.to_thread(run_rough_cut, footage_path, scenes)
+        global_threshold = compute_global_threshold([w for _, w, _ in scored])
 
+        clip_summaries = []
+        candidates_by_clip: dict[int, list] = {}
+
+        for i, (clip_path, windows, duration_clip) in enumerate(scored):
+            if not windows:
+                clip_summaries.append({
+                    "clip_index": i, "clip_name": Path(clip_path).name,
+                    "raw_duration_s": round(duration_clip, 2),
+                    "candidate_count": 0, "rejected_count": 0,
+                    "candidate_duration_s": 0, "retention_pct": 0,
+                    "rejection_summary": {}, "thumbnail_url": None,
+                })
+                candidates_by_clip[i] = []
+                continue
+
+            candidates, _, summary = build_clip_candidates(windows, duration_clip, global_threshold)
+
+            thumb_url = None
+            if candidates:
+                mid_cand = candidates[0]
+                thumb_t = mid_cand["start_time"] + min(1.0, mid_cand["duration"] * 0.25)
+                thumb_b64 = await asyncio.to_thread(grab_frame, clip_path, thumb_t)
+                if thumb_b64:
+                    thumb_path = edit_dir / f"thumb_{i}.jpg"
+                    thumb_path.write_bytes(base64.b64decode(thumb_b64))
+                    thumb_url = f"/uploads/{job_id}/thumb_{i}.jpg"
+
+            clip_summaries.append({
+                "clip_index": i, "clip_name": Path(clip_path).name,
+                "thumbnail_url": thumb_url, **summary,
+            })
+            candidates_by_clip[i] = candidates
+
+        total_raw = round(sum(c["raw_duration_s"] for c in clip_summaries), 2)
+        total_cand = round(sum(c["candidate_duration_s"] for c in clip_summaries), 2)
         rough_summary = {
-            "total_scenes": rough["total_scenes"],
-            "candidate_count": rough["candidate_count"],
-            "rejected_count": rough["rejected_count"],
-            "candidate_duration_s": rough["candidate_duration_s"],
-            "retention_pct": rough["retention_pct"],
-            "rejection_summary": rough["rejection_summary"],
-            "scenes": [
-                {
-                    "start": s["start_time"], "end": s["end_time"],
-                    "duration": s["duration"], "keep": s["keep"],
-                    "blur": s["blur_score"], "motion": s["motion_std"],
-                    "brightness": s["brightness"],
-                    "reasons": s["reject_reasons"],
-                }
-                for s in rough["candidates"] + rough["rejected"]
-            ],
+            "clips": clip_summaries,
+            "total_clips": len(clip_paths),
+            "total_raw_duration_s": total_raw,
+            "total_candidate_duration_s": total_cand,
+            "overall_retention_pct": round(total_cand / total_raw * 100) if total_raw > 0 else 0,
+            "motion_threshold_used": round(global_threshold, 2),
         }
-        rough_summary["scenes"].sort(key=lambda x: x["start"])
+
+        if all(len(v) == 0 for v in candidates_by_clip.values()):
+            _write_state(edit_dir, {
+                "status": "error", "job_id": job_id,
+                "error": "No usable footage found — all clips were rejected by the rough cut.",
+                "rough_cut": rough_summary,
+            })
+            return
+
+        candidates_store = {
+            str(i): [{"clip_path": clip_paths[i], "candidate": c} for c in candidates_by_clip[i]]
+            for i in range(len(clip_paths))
+        }
+        (edit_dir / "candidates.json").write_text(json.dumps(candidates_store))
 
         _write_state(edit_dir, {
-            "status": "processing", "job_id": job_id, "step": "rough_cut_done",
-            "rough_cut": rough_summary,
-        })
-
-        candidate_clips = rough["candidates"]
-
-        # Step 2: generate script + caption plan (skipped if skip_script=True)
-        script = None
-        caption_plan = None
-        if not skip_script:
-            _write_state(edit_dir, {"status": "processing", "job_id": job_id, "step": "generating_script"})
-            script = await asyncio.to_thread(
-                generate_script_and_captions, profile, scenes, duration, topic
-            )
-            caption_plan = script.get("caption_plan") if isinstance(script, dict) else None
-
-        # Step 3: render video + fcpxml using rough cut candidates
-        _write_state(edit_dir, {"status": "processing", "job_id": job_id, "step": "rendering"})
-        edit_result = await asyncio.to_thread(
-            apply_style, footage_path, profile, edit_dir, caption_plan, candidate_clips,
-            False,  # apply_color disabled — color grade is a separate step
-        )
-
-        _write_state(edit_dir, {
-            "status": "completed",
+            "status": "awaiting_rough_cut_review",
             "job_id": job_id,
-            "result": {**edit_result, "script": script, "rough_cut": rough_summary},
+            "rough_cut": rough_summary,
+            "_config": {"username": profile.get("username"), "topic": topic, "skip_script": skip_script},
+            "_clip_paths": clip_paths,
         })
 
     except Exception as e:
         _write_state(edit_dir, {"status": "error", "job_id": job_id, "error": str(e)})
 
 
-def _remux_to_mp4(src: Path, job_dir: Path) -> Path:
-    """Remux a single clip to mp4 so OpenCV can decode it (handles iPhone HEVC MOV)."""
-    out = job_dir / "footage.mp4"
+# ── Pipeline: Phase 1 (catalog) + Phase 2 (paper edit) ───────────────────────
+
+async def _run_phase1_and_phase2(job_id: str, edit_dir: Path):
+    try:
+        state = json.loads((edit_dir / "state.json").read_text())
+        config = state.get("_config", {})
+        clip_paths = state.get("_clip_paths", [])
+        rough_cut = state.get("rough_cut", {})
+
+        # Skip Phase 1+2 if already cached (e.g. retrying after a Phase 3 failure)
+        catalog_path = edit_dir / "catalog.json"
+        manifest_path = edit_dir / "manifest_v2.json"
+        if catalog_path.exists() and manifest_path.exists():
+            manifest_v2 = json.loads(manifest_path.read_text())
+            _write_state(edit_dir, {
+                "status": "awaiting_paper_edit_review",
+                "job_id": job_id,
+                "manifest_v2": manifest_v2,
+                "rough_cut": rough_cut,
+                "_config": config,
+            })
+            return
+
+        profile = load_profile(config.get("username", ""))
+        if not profile:
+            _write_state(edit_dir, {"status": "error", "job_id": job_id, "error": "Profile not found"})
+            return
+
+        candidates_store = json.loads((edit_dir / "candidates.json").read_text())
+        candidates_by_clip = {int(k): [item["candidate"] for item in v] for k, v in candidates_store.items()}
+        clip_paths_by_idx = {int(k): v[0]["clip_path"] for k, v in candidates_store.items() if v}
+
+        clip_groups = [
+            {
+                "clip_index": i,
+                "clip_path": clip_paths_by_idx.get(i, clip_paths[i] if i < len(clip_paths) else ""),
+                "candidates": candidates_by_clip.get(i, []),
+            }
+            for i in range(len(clip_paths))
+            if candidates_by_clip.get(i)
+        ]
+
+        if not clip_groups:
+            _write_state(edit_dir, {"status": "error", "job_id": job_id, "error": "No usable footage after rough cut."})
+            return
+
+        # Phase 1: Catalog all clips in parallel (includes _frame_b64 per scene)
+        scenes = await catalog_clips(clip_groups)
+
+        if not scenes:
+            _write_state(edit_dir, {"status": "error", "job_id": job_id, "error": "No scenes could be cataloged."})
+            return
+
+        # Save thumbnails from Phase 1 frames (no extra ffmpeg calls needed)
+        manifest_scenes = []
+        for scene in scenes:
+            frame_b64 = scene.pop("_frame_b64", None)
+            thumb_url = None
+            if frame_b64:
+                safe_id = scene["scene_id"].replace("/", "_")
+                thumb_path = edit_dir / f"scene_{safe_id}.jpg"
+                thumb_path.write_bytes(base64.b64decode(frame_b64))
+                thumb_url = f"/uploads/{job_id}/scene_{safe_id}.jpg"
+            manifest_scenes.append({**scene, "thumbnail_url": thumb_url})
+
+        # Save catalog.json (backend-only — includes clip_path)
+        (edit_dir / "catalog.json").write_text(json.dumps({"scenes": scenes}))
+
+        # Phase 2: Paper edit (text-only, no images)
+        _write_state(edit_dir, {
+            "status": "processing", "job_id": job_id, "step": "planning_edit",
+            "rough_cut": rough_cut, "_config": config, "_clip_paths": clip_paths,
+        })
+        paper_edit = await asyncio.to_thread(plan_edit, scenes, profile)
+
+        # Build manifest_v2 (UI-facing — no clip_path)
+        hook_id: str = paper_edit.get("hook_scene_id", "")
+        dropped_ids: set[str] = set(paper_edit.get("drop", []))
+
+        # Sort kept scenes by (clip_index, seg_idx) — preserve shooting order
+        def _scene_sort_key(s: dict) -> tuple:
+            try:
+                parts = s["scene_id"].split("_")  # clip_{n}_seg_{m}
+                return (int(parts[1]), int(parts[3]))
+            except (IndexError, ValueError):
+                return (s.get("clip_index", 0), 0)
+
+        kept_scenes = sorted(
+            [s for s in manifest_scenes if s["scene_id"] not in dropped_ids],
+            key=_scene_sort_key,
+        )
+
+        # Duplicate hook to front as a short tease; original stays in chronological body
+        hook_scene = next((s for s in kept_scenes if s["scene_id"] == hook_id), None)
+        if hook_scene:
+            ordered_manifest_scenes = [{**hook_scene, "scene_id": f"{hook_id}_hook", "is_hook": True}] + kept_scenes
+        else:
+            ordered_manifest_scenes = kept_scenes
+
+        # Strip clip_path from manifest scenes (frontend-safe)
+        ui_scenes = [
+            {k: v for k, v in s.items() if k != "clip_path"}
+            for s in ordered_manifest_scenes
+        ]
+
+        manifest_v2 = {
+            "reasoning": paper_edit.get("reasoning", ""),
+            "hook_scene_id": paper_edit.get("hook_scene_id", ""),
+            "scenes": ui_scenes,
+            "dropped_scene_count": len(dropped_ids),
+        }
+
+        (edit_dir / "manifest_v2.json").write_text(json.dumps(manifest_v2))
+        # Save full paper edit output for debugging / quality review
+        (edit_dir / "paper_edit_raw.json").write_text(json.dumps({
+            "hook_scene_id": paper_edit.get("hook_scene_id", ""),
+            "drop": paper_edit.get("drop", []),
+            "reasoning": paper_edit.get("reasoning", ""),
+        }, indent=2))
+
+        _write_state(edit_dir, {
+            "status": "awaiting_paper_edit_review",
+            "job_id": job_id,
+            "manifest_v2": manifest_v2,
+            "rough_cut": rough_cut,
+            "_config": config,
+        })
+
+    except Exception as e:
+        _write_state(edit_dir, {"status": "error", "job_id": job_id, "error": str(e)})
+
+
+# ── Pipeline: Phase 3 (precision trim) → awaiting_detailed_cut_review ─────────
+
+async def _run_phase3(job_id: str, edit_dir: Path):
+    # Keep these in outer scope so the except block can use them for recovery
+    config: dict = {}
+    rough_cut: dict = {}
+
+    try:
+        state = json.loads((edit_dir / "state.json").read_text())
+        config = state.get("_config", {})
+        approved_ids: list[str] = state.get("_approved_scene_ids", [])
+        rough_cut = state.get("rough_cut", {})
+
+        profile = load_profile(config.get("username", ""))
+        if not profile:
+            _write_state(edit_dir, {"status": "error", "job_id": job_id, "error": "Profile not found"})
+            return
+
+        catalog = json.loads((edit_dir / "catalog.json").read_text())
+        scene_map = {s["scene_id"]: s for s in catalog["scenes"]}
+
+        def _resolve_scene(sid: str) -> dict | None:
+            if sid in scene_map:
+                return scene_map[sid]
+            # Hook duplicate: same source clip, trimmed shorter by Phase 3
+            if sid.endswith("_hook"):
+                base = scene_map.get(sid[:-5])
+                if base:
+                    return {**base, "scene_id": sid, "is_hook": True}
+            return None
+
+        ordered_scenes = [s for sid in approved_ids if (s := _resolve_scene(sid)) is not None]
+        if not ordered_scenes:
+            _write_state(edit_dir, {"status": "error", "job_id": job_id, "error": "No approved scenes found in catalog."})
+            return
+
+        # Use cached Phase 3 output if approved_ids haven't changed
+        precision_cuts_path = edit_dir / "precision_cuts.json"
+        if precision_cuts_path.exists():
+            cached = json.loads(precision_cuts_path.read_text())
+            if cached.get("approved_ids") == approved_ids:
+                precision_cuts = cached["cuts"]
+            else:
+                precision_cuts = await asyncio.to_thread(trim_scenes, ordered_scenes, profile)
+        else:
+            precision_cuts = await asyncio.to_thread(trim_scenes, ordered_scenes, profile)
+
+        # Save Phase 3 output — includes Claude's note + confidence per cut
+        precision_cuts_path.write_text(json.dumps({
+            "approved_ids": approved_ids,
+            "cuts": precision_cuts,
+        }, indent=2))
+
+        # Extract per-cut thumbnails and build ui_cuts
+        ui_cuts = []
+        detailed_cuts = []
+        for i, cut in enumerate(precision_cuts):
+            thumb_b64 = await asyncio.to_thread(grab_frame, cut["clip_path"], cut["start_s"])
+            thumb_url = None
+            if thumb_b64:
+                thumb_path = edit_dir / f"cut_thumb_{i}.jpg"
+                thumb_path.write_bytes(base64.b64decode(thumb_b64))
+                thumb_url = f"/uploads/{job_id}/cut_thumb_{i}.jpg"
+
+            scene = scene_map.get(cut["scene_id"], {})
+            ui_cuts.append({
+                "cut_index": i,
+                "scene_id": cut["scene_id"],
+                "clip_index": cut["clip_index"],
+                "start_s": cut["start_s"],
+                "end_s": cut["end_s"],
+                "duration_s": cut["duration_s"],
+                "note": cut["note"],
+                "confidence": cut["confidence"],
+                "thumbnail_url": thumb_url,
+                "description": scene.get("description", ""),
+            })
+            detailed_cuts.append({**cut, "cut_index": i})
+
+        _write_state(edit_dir, {
+            "status": "awaiting_detailed_cut_review",
+            "job_id": job_id,
+            "ui_cuts": ui_cuts,
+            "detailed_cuts": detailed_cuts,
+            "rough_cut": rough_cut,
+            "_config": config,
+        })
+
+    except Exception as e:
+        # Phase 3 failed — recover to paper_edit_review using cached manifest_v2.json
+        # so the user can retry without re-running the expensive Phase 1+2 catalog calls.
+        manifest_v2_path = edit_dir / "manifest_v2.json"
+        if manifest_v2_path.exists():
+            try:
+                manifest_v2 = json.loads(manifest_v2_path.read_text())
+                _write_state(edit_dir, {
+                    "status": "awaiting_paper_edit_review",
+                    "job_id": job_id,
+                    "manifest_v2": manifest_v2,
+                    "rough_cut": rough_cut,
+                    "_config": config,
+                    "phase3_error": str(e),
+                })
+                return
+            except Exception:
+                pass
+        # Fallback: hard error if manifest_v2.json is also unreadable
+        _write_state(edit_dir, {"status": "error", "job_id": job_id, "error": str(e)})
+
+
+# ── Pipeline: render (after user approves detailed cuts) ──────────────────────
+
+async def _render_edit(
+    job_id: str,
+    edit_dir: Path,
+    profile: dict,
+    detailed_cuts: list[dict],
+    drop: list[int],
+    topic: str,
+    skip_script: bool,
+):
+    try:
+        segments = [
+            {"clip_path": cut["clip_path"], "start_s": cut["start_s"], "end_s": cut["end_s"]}
+            for i, cut in enumerate(detailed_cuts)
+            if i not in drop
+        ]
+
+        if not segments:
+            _write_state(edit_dir, {"status": "error", "job_id": job_id, "error": "No segments after applying drops."})
+            return
+
+        _write_state(edit_dir, {"status": "processing", "job_id": job_id, "step": "building_selects"})
+        selects_path = await asyncio.to_thread(_build_selects_from_cuts, segments, edit_dir)
+
+        probe = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(selects_path)],
+            capture_output=True, text=True,
+        )
+        duration = 30.0
+        if probe.returncode == 0:
+            duration = float(json.loads(probe.stdout).get("format", {}).get("duration", 30))
+
+        script = None
+        caption_plan = None
+        if not skip_script:
+            _write_state(edit_dir, {"status": "processing", "job_id": job_id, "step": "generating_script"})
+            scenes = await asyncio.to_thread(detect_scenes, str(selects_path))
+            script = await asyncio.to_thread(
+                generate_script_and_captions, profile, scenes, duration, topic
+            )
+            caption_plan = script.get("caption_plan") if isinstance(script, dict) else None
+
+        _write_state(edit_dir, {"status": "processing", "job_id": job_id, "step": "rendering"})
+        edit_result = await asyncio.to_thread(
+            apply_style, str(selects_path), profile, edit_dir, caption_plan, None, False,
+        )
+
+        _write_state(edit_dir, {
+            "status": "completed",
+            "job_id": job_id,
+            "result": {**edit_result, "script": script},
+        })
+
+    except Exception as e:
+        _write_state(edit_dir, {"status": "error", "job_id": job_id, "error": str(e)})
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _build_selects_from_cuts(segments: list[dict], output_dir: Path) -> Path:
+    segment_paths = []
+    for i, seg in enumerate(segments):
+        seg_out = output_dir / f"select_{i:03d}.mp4"
+        dur = seg["end_s"] - seg["start_s"]
+        cmd = [
+            "ffmpeg", "-ss", f"{seg['start_s']:.3f}", "-i", seg["clip_path"],
+            "-t", f"{dur:.3f}", "-c", "copy", str(seg_out), "-y",
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            cmd = [
+                "ffmpeg", "-ss", f"{seg['start_s']:.3f}", "-i", seg["clip_path"],
+                "-t", f"{dur:.3f}",
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
+                "-c:a", "aac", "-b:a", "192k", str(seg_out), "-y",
+            ]
+            subprocess.run(cmd, capture_output=True, text=True)
+        if seg_out.exists() and seg_out.stat().st_size > 0:
+            segment_paths.append(seg_out)
+
+    if not segment_paths:
+        raise RuntimeError("No segments could be extracted from detailed cuts")
+    if len(segment_paths) == 1:
+        return segment_paths[0]
+    return _concat_clips(segment_paths, output_dir, out_name="selects.mp4")
+
+
+def _remux_to_mp4(src: Path, job_dir: Path, index: int = 0) -> Path:
+    out = job_dir / f"clip_{index:02d}.mp4"
     cmd = ["ffmpeg", "-fflags", "+genpts", "-i", str(src), "-c", "copy", str(out), "-y"]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        # Fall back to H.264 transcode if copy fails
-        cmd = ["ffmpeg", "-i", str(src), "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-               "-c:a", "aac", "-b:a", "192k", str(out), "-y"]
+        cmd = [
+            "ffmpeg", "-i", str(src),
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "192k", str(out), "-y",
+        ]
         subprocess.run(cmd, capture_output=True, text=True)
     return out
 
 
-def _concat_clips(clips: list[Path], job_dir: Path) -> Path:
-    """Concatenate clips in order using ffmpeg concat demuxer. Falls back to re-encode if needed."""
-    list_path = job_dir / "clips.txt"
+def _concat_clips(clips: list[Path], job_dir: Path, out_name: str = "footage.mp4") -> Path:
+    list_path = job_dir / "concat_list.txt"
     list_path.write_text("\n".join(f"file '{p.resolve()}'" for p in clips))
-
-    out_path = job_dir / "footage.mp4"
-    # Try stream-copy first (instant, no quality loss); -fflags +genpts fixes iPhone MOV timestamp offsets
-    cmd = ["ffmpeg", "-fflags", "+genpts", "-f", "concat", "-safe", "0", "-i", str(list_path), "-c", "copy", str(out_path), "-y"]
+    out_path = job_dir / out_name
+    cmd = [
+        "ffmpeg", "-fflags", "+genpts", "-f", "concat", "-safe", "0",
+        "-i", str(list_path), "-c", "copy", str(out_path), "-y",
+    ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        # Fall back to re-encode (handles mismatched codecs/resolutions)
         cmd = [
             "ffmpeg", "-f", "concat", "-safe", "0", "-i", str(list_path),
-            "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
             "-c:a", "aac", "-b:a", "192k", str(out_path), "-y",
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
-            raise RuntimeError(f"Failed to concatenate clips: {result.stderr[-500:]}")
-
+            raise RuntimeError(f"Concat failed: {result.stderr[-400:]}")
     return out_path
+
+
+def _download_file(job_id: str, path_key: str, media_type: str, filename: str):
+    state = _get_completed_state(job_id)
+    file_path = state.get("result", {}).get(path_key)
+    if not file_path or not Path(file_path).exists():
+        raise HTTPException(404, "File not found")
+    return FileResponse(file_path, media_type=media_type, filename=filename)
+
+
+def _get_completed_state(job_id: str) -> dict:
+    state_path = UPLOAD_DIR / job_id / "state.json"
+    if not state_path.exists():
+        raise HTTPException(404, "Job not found")
+    state = json.loads(state_path.read_text())
+    if state.get("status") != "completed":
+        raise HTTPException(400, f"Edit not complete (status: {state.get('status')})")
+    return state
 
 
 def _write_state(job_dir: Path, state: dict):

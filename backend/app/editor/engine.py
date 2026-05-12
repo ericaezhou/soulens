@@ -31,7 +31,11 @@ def apply_style(
 
     duration = probe["duration"]
 
-    if candidate_clips:
+    if candidate_clips is None:
+        # Passthrough: footage is already edited (e.g. selects.mp4 from precision trim).
+        # Just apply color grade if requested — no re-cutting.
+        cuts = []
+    elif candidate_clips:
         cuts = _clips_to_cuts(candidate_clips, recipe)
     else:
         cuts = _generate_cuts(
@@ -223,7 +227,7 @@ def _build_ffmpeg_cmd(
         "ffmpeg", "-i", input_path,
         "-filter_complex", filter_complex,
         "-map", "[outv]", "-map", "[outa]",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
         "-c:a", "aac", "-b:a", "192k",
         output_path, "-y",
     ]

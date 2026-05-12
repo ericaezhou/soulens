@@ -132,17 +132,71 @@ export async function getProfileState(username: string): Promise<ProfileState> {
 
 // ---- Edit ----
 
-export interface RoughCutScene {
-  start: number; end: number; duration: number;
-  keep: boolean; blur: number; motion: number; brightness: number;
-  reasons: string[];
+export interface RoughCutClip {
+  clip_index: number;
+  clip_name: string;
+  raw_duration_s: number;
+  candidate_count: number;
+  rejected_count: number;
+  candidate_duration_s: number;
+  retention_pct: number;
+  rejection_summary: Record<string, number>;
+  thumbnail_url?: string | null;
+}
+
+export interface RoughCutSummary {
+  clips: RoughCutClip[];
+  total_clips: number;
+  total_candidates: number;
+  total_raw_duration_s: number;
+  total_candidate_duration_s: number;
+  overall_retention_pct: number;
+}
+
+// Scene card from Phase 1 catalog + Phase 2 ordering — shown in Paper Edit Review
+export interface SceneCard {
+  scene_id: string;
+  clip_index: number;
+  start_s: number;
+  end_s: number;
+  duration_s: number;
+  shot_type: string;
+  energy: string;
+  description: string;
+  thumbnail_url: string | null;
+}
+
+// manifest_v2.json schema — output of Phase 2, manipulated by the Paper Edit Review UI
+export interface ManifestV2 {
+  reasoning: string;
+  hook_scene_id: string;
+  scenes: SceneCard[];           // ordered, Claude-selected scenes (no clip_path)
+  dropped_scene_count: number;   // how many scenes Claude excluded
+}
+
+// Precision cut from Phase 3 — shown in Final Cut Review
+export interface DetailedCut {
+  cut_index: number;
+  scene_id: string;
+  clip_index: number;
+  start_s: number;
+  end_s: number;
+  duration_s: number;
+  note: string;
+  confidence: number;
+  thumbnail_url?: string | null;
+  description?: string;
 }
 
 export interface EditState {
-  status: "processing" | "completed" | "error";
+  status: "processing" | "completed" | "error" | "awaiting_rough_cut_review" | "awaiting_paper_edit_review" | "awaiting_detailed_cut_review";
   step?: string;
   job_id?: string;
   error?: string;
+  rough_cut?: RoughCutSummary;
+  manifest_v2?: ManifestV2;
+  phase3_error?: string;
+  ui_cuts?: DetailedCut[];
   result?: {
     mp4_filename: string;
     fcpxml_filename: string;
@@ -150,14 +204,7 @@ export interface EditState {
     output_duration_s: number;
     grade_style: string;
     script?: ScriptResult;
-    rough_cut?: {
-      total_scenes: number;
-      candidate_count: number;
-      rejected_count: number;
-      retention_pct: number;
-      rejection_summary: Record<string, number>;
-      scenes: RoughCutScene[];
-    };
+    rough_cut?: RoughCutSummary;
   };
 }
 
@@ -203,6 +250,40 @@ export async function getEditState(jobId: string): Promise<EditState> {
   return res.json();
 }
 
+export async function proceedEdit(jobId: string): Promise<void> {
+  const res = await fetch(`${API}/edit/proceed/${jobId}`, { method: "POST" });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to proceed");
+  }
+}
+
+// Sends the user-approved ordered scene list to trigger Phase 3
+export async function confirmScenes(jobId: string, sceneIds: string[]): Promise<void> {
+  const res = await fetch(`${API}/edit/confirm_scenes/${jobId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ scene_ids: sceneIds }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to confirm scenes");
+  }
+}
+
+export async function finalizeEdit(jobId: string, drop: number[]): Promise<void> {
+  const res = await fetch(`${API}/edit/finalize/${jobId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ drop }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to finalize");
+  }
+}
+
+export function mediaUrl(path: string) { return `${API}${path}`; }
 export function videoDownloadUrl(jobId: string) { return `${API}/edit/download/${jobId}/video`; }
 export function fcpxmlDownloadUrl(jobId: string) { return `${API}/edit/download/${jobId}/fcpxml`; }
 export function scriptDownloadUrl(jobId: string) { return `${API}/edit/download/${jobId}/script`; }
@@ -212,7 +293,7 @@ export function scriptDownloadUrl(jobId: string) { return `${API}/edit/download/
 export function poll<T extends { status: string }>(
   fn: () => Promise<T>,
   onUpdate: (data: T) => void,
-  intervalMs = 2500,
+  intervalMs = 1000,
 ): () => void {
   let stopped = false;
   (async () => {
@@ -220,7 +301,13 @@ export function poll<T extends { status: string }>(
       try {
         const data = await fn();
         onUpdate(data);
-        if (data.status === "completed" || data.status === "error" || data.status === "awaiting_synthesis") break;
+        if (
+          data.status === "completed" ||
+          data.status === "error" ||
+          data.status === "awaiting_rough_cut_review" ||
+          data.status === "awaiting_paper_edit_review" ||
+          data.status === "awaiting_detailed_cut_review"
+        ) break;
       } catch { /* swallow and retry */ }
       await new Promise((r) => setTimeout(r, intervalMs));
     }

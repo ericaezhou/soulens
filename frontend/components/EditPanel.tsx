@@ -1,24 +1,48 @@
 "use client";
 import { useState, useRef, useCallback } from "react";
-import { Upload, Loader2, Download, FileText, Film, Sparkles, X } from "lucide-react";
+import { Upload, Loader2, Download, FileText, Film, Sparkles, X, Trash2, RotateCcw } from "lucide-react";
 import {
   uploadFootage, startEdit, getEditState, poll,
-  videoDownloadUrl, fcpxmlDownloadUrl, scriptDownloadUrl,
-  EditState, StyleProfile,
+  proceedEdit, confirmScenes, finalizeEdit,
+  mediaUrl, videoDownloadUrl, fcpxmlDownloadUrl, scriptDownloadUrl,
+  EditState, RoughCutSummary, ManifestV2, DetailedCut, StyleProfile,
 } from "@/lib/api";
 
 interface Props {
   profile: StyleProfile;
 }
 
-type Phase = "idle" | "staged" | "uploading" | "processing" | "done" | "error";
+type Phase =
+  | "idle"
+  | "staged"
+  | "uploading"
+  | "processing"
+  | "rough_cut_review"
+  | "paper_edit_review"
+  | "detailed_cut_review"
+  | "done"
+  | "error";
 
 const STEP_LABELS: Record<string, string> = {
-  rough_cut: "Running quality filter on clips...",
-  rough_cut_done: "Quality filter done, writing script...",
-  analyzing_footage: "Analyzing your footage...",
-  generating_script: "Writing script in your voice...",
-  rendering: "Rendering + color grading...",
+  starting:          "Getting your clips ready...",
+  rough_cut:         "Watching all your clips — flagging shaky, blurry, and dark moments...",
+  cataloging:        "Analyzing what's in each clip...",
+  planning_edit:     "Planning the narrative structure...",
+  trimming_cuts:     "Precision-trimming each cut to match the style...",
+  building_selects:  "Trimming the bad moments and joining the good parts together...",
+  generating_script: "Writing a script in your voice...",
+  rendering:         "Exporting your edited video...",
+};
+
+const STEP_PROGRESS: Record<string, string> = {
+  starting:          "5%",
+  rough_cut:         "30%",
+  cataloging:        "45%",
+  planning_edit:     "55%",
+  trimming_cuts:     "70%",
+  building_selects:  "80%",
+  generating_script: "88%",
+  rendering:         "93%",
 };
 
 const VIDEO_EXTS = /\.(mp4|mov|avi|mkv|m4v|webm)$/i;
@@ -52,7 +76,9 @@ export default function EditPanel({ profile }: Props) {
   const [isDragging, setIsDragging] = useState(false);
   const [topic, setTopic] = useState("");
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
-  const [skipScript, setSkipScript] = useState(true);
+  const [roughCutData, setRoughCutData] = useState<RoughCutSummary | null>(null);
+  const [manifestV2, setManifestV2] = useState<ManifestV2 | null>(null);
+  const [detailedCuts, setDetailedCuts] = useState<DetailedCut[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
 
@@ -65,6 +91,30 @@ export default function EditPanel({ profile }: Props) {
     setPhase("staged");
   }, []);
 
+  // Shared poll handler used after proceed and after confirm_scenes
+  const startPolling = useCallback((editId: string) => {
+    return poll(
+      () => getEditState(editId),
+      (state) => {
+        if (state.step) setStep(state.step);
+        if (state.status === "awaiting_rough_cut_review") {
+          setRoughCutData(state.rough_cut ?? null);
+          setPhase("rough_cut_review");
+        }
+        if (state.status === "awaiting_paper_edit_review") {
+          setManifestV2(state.manifest_v2 ?? null);
+          setPhase("paper_edit_review");
+        }
+        if (state.status === "awaiting_detailed_cut_review") {
+          setDetailedCuts(state.ui_cuts ?? []);
+          setPhase("detailed_cut_review");
+        }
+        if (state.status === "completed") { setResult(state.result ?? null); setPhase("done"); }
+        if (state.status === "error") { setError(state.error || "Edit failed"); setPhase("error"); }
+      },
+    );
+  }, []);
+
   const handleUpload = useCallback(async () => {
     if (!stagedFiles.length) return;
     setError(""); setPhase("uploading");
@@ -72,23 +122,15 @@ export default function EditPanel({ profile }: Props) {
 
     try {
       const { job_id: footageId } = await uploadFootage(stagedFiles);
-      setPhase("processing"); setStep("analyzing_footage");
-      const { job_id: editId } = await startEdit(profile.username, footageId, topic, skipScript);
+      setPhase("processing"); setStep("starting");
+      const { job_id: editId } = await startEdit(profile.username, footageId, topic, true);
       setEditJobId(editId);
-
-      const stop = poll(
-        () => getEditState(editId),
-        (state) => {
-          if (state.step) setStep(state.step);
-          if (state.status === "completed") { setResult(state.result ?? null); setPhase("done"); stop(); }
-          if (state.status === "error") { setError(state.error || "Edit failed"); setPhase("error"); stop(); }
-        },
-      );
+      startPolling(editId);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
       setPhase("error");
     }
-  }, [stagedFiles, profile.username, topic]);
+  }, [stagedFiles, profile.username, topic, startPolling]);
 
   const onDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault(); setIsDragging(false);
@@ -98,7 +140,6 @@ export default function EditPanel({ profile }: Props) {
     const dirs = entries.filter(en => en.isDirectory) as FileSystemDirectoryEntry[];
 
     if (dirs.length > 0) {
-      // Folder dropped: read top-level video files from all dropped folders
       const files: File[] = (await Promise.all(dirs.map(readDirFiles))).flat();
       if (files.length) stageFiles(files);
       else setError("No video files found in that folder.");
@@ -111,6 +152,48 @@ export default function EditPanel({ profile }: Props) {
     return <EditResult result={result} jobId={editJobId} onReset={() => { setPhase("idle"); setResult(null); setEditJobId(null); }} />;
   }
 
+  if (phase === "rough_cut_review" && roughCutData && editJobId) {
+    return (
+      <RoughCutReview
+        roughCut={roughCutData}
+        onProceed={async () => {
+          setPhase("processing");
+          setStep("cataloging");
+          await proceedEdit(editJobId);
+          startPolling(editJobId);
+        }}
+      />
+    );
+  }
+
+  if (phase === "paper_edit_review" && manifestV2 && editJobId) {
+    return (
+      <PaperEditReview
+        manifest={manifestV2}
+        onConfirm={async (sceneIds: string[]) => {
+          setPhase("processing");
+          setStep("trimming_cuts");
+          await confirmScenes(editJobId, sceneIds);
+          startPolling(editJobId);
+        }}
+      />
+    );
+  }
+
+  if (phase === "detailed_cut_review" && detailedCuts.length > 0 && editJobId) {
+    return (
+      <DetailedCutReview
+        cuts={detailedCuts}
+        onRender={async (drop: number[]) => {
+          setPhase("processing");
+          setStep("building_selects");
+          await finalizeEdit(editJobId, drop);
+          startPolling(editJobId);
+        }}
+      />
+    );
+  }
+
   if (phase === "processing" || phase === "uploading") {
     return (
       <div className="w-full max-w-lg mx-auto glass rounded-2xl p-8 text-center space-y-4">
@@ -118,21 +201,17 @@ export default function EditPanel({ profile }: Props) {
           style={{ background: "rgba(var(--accent-rgb), 0.1)" }}>
           <Loader2 size={20} className="animate-spin text-[var(--accent)]" />
         </div>
-        <div>
-          <p className="text-sm font-medium">{STEP_LABELS[step] || step}</p>
-          <p className="text-xs text-[var(--text-muted)] mt-1">Generating script, applying color grade, rendering...</p>
-        </div>
+        <p className="text-sm font-medium">{STEP_LABELS[step] || "Working on your edit..."}</p>
         <div className="h-0.5 bg-[var(--surface-2)] rounded-full overflow-hidden">
           <div className="h-full rounded-full animate-pulse gradient-accent-h" style={{
-            width: step === "rendering" ? "80%" : step === "generating_script" ? "55%" : "25%",
-            transition: "width 1s ease",
+            width: STEP_PROGRESS[step] ?? "10%",
+            transition: "width 1.2s ease",
           }} />
         </div>
       </div>
     );
   }
 
-  // Staged: show clip list + confirm button
   if (phase === "staged") {
     return (
       <div className="w-full max-w-lg mx-auto space-y-4">
@@ -146,7 +225,7 @@ export default function EditPanel({ profile }: Props) {
         <div className="glass rounded-2xl p-4 space-y-2">
           <div className="flex items-center justify-between mb-1">
             <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">
-              {stagedFiles.length} clip{stagedFiles.length !== 1 ? "s" : ""} · will be concatenated in order
+              {stagedFiles.length} clip{stagedFiles.length !== 1 ? "s" : ""} · will be processed in order
             </p>
             <button onClick={() => { setStagedFiles([]); setPhase("idle"); }}
               className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
@@ -164,22 +243,13 @@ export default function EditPanel({ profile }: Props) {
 
         {error && <div className="glass rounded-xl p-3 text-sm text-red-400 border border-red-500/20">{error}</div>}
 
-        <label className="flex items-center justify-between glass rounded-xl px-4 py-3 cursor-pointer">
-          <div>
-            <p className="text-sm font-medium">AI Script + Captions</p>
-            <p className="text-xs text-[var(--text-muted)]">Calls Claude — skip while testing rough cut</p>
-          </div>
-          <button
-            role="switch"
-            aria-checked={!skipScript}
-            onClick={() => setSkipScript(s => !s)}
-            className="w-10 h-5 rounded-full transition-colors shrink-0"
-            style={{ background: skipScript ? "var(--surface-2)" : "var(--accent)" }}
-          >
-            <span className="block w-4 h-4 rounded-full bg-white shadow transition-transform mx-0.5"
-              style={{ transform: skipScript ? "translateX(0)" : "translateX(20px)" }} />
-          </button>
-        </label>
+        <div className="glass rounded-xl px-4 py-3 text-xs text-[var(--text-muted)] space-y-1">
+          <p className="font-medium text-[var(--text)] mb-1.5">What happens next:</p>
+          <p>① Rough cut — flags shaky & dark moments, you review</p>
+          <p>② Scene catalog + narrative plan — AI describes & orders scenes, you approve</p>
+          <p>③ Precision trim — AI finds the exact in/out point for each cut</p>
+          <p>④ Final cut review — you drop any bad cuts, then render</p>
+        </div>
 
         <button onClick={handleUpload}
           className="btn-primary w-full py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2">
@@ -204,7 +274,6 @@ export default function EditPanel({ profile }: Props) {
     );
   }
 
-  // Idle: drop zone
   return (
     <div className="w-full max-w-lg mx-auto space-y-4">
       <div className="glass rounded-2xl p-3">
@@ -263,6 +332,247 @@ export default function EditPanel({ profile }: Props) {
   );
 }
 
+// ── Rough cut review ──────────────────────────────────────────────────────────
+
+function RoughCutReview({
+  roughCut, onProceed,
+}: {
+  roughCut: RoughCutSummary;
+  onProceed: () => Promise<void>;
+}) {
+  const [proceeding, setProceeding] = useState(false);
+
+  return (
+    <div className="w-full max-w-lg mx-auto space-y-4">
+      <div className="glass rounded-2xl p-5 space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold">Rough cut complete</h3>
+          <p className="text-xs text-[var(--text-muted)] mt-0.5">
+            {roughCut.total_candidate_duration_s.toFixed(1)}s of usable footage kept
+            · {roughCut.overall_retention_pct}% of {roughCut.total_raw_duration_s.toFixed(1)}s raw
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          {roughCut.clips.map((clip) => {
+            const allRejected = clip.candidate_count === 0;
+            const dot = allRejected ? "bg-red-400" : clip.retention_pct < 60 ? "bg-yellow-400" : "bg-green-400";
+            const reasons = Object.keys(clip.rejection_summary);
+            return (
+              <div key={clip.clip_index} className="flex items-center gap-2.5 glass rounded-xl p-2.5">
+                {clip.thumbnail_url ? (
+                  <img src={mediaUrl(clip.thumbnail_url)} className="w-16 h-10 object-cover rounded-lg shrink-0" />
+                ) : (
+                  <div className="w-16 h-10 rounded-lg shrink-0 bg-[var(--surface-2)]" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${dot}`} />
+                    <span className="text-xs font-medium">Clip {clip.clip_index + 1}</span>
+                    <span className="text-[11px] text-[var(--text-muted)]">· {clip.raw_duration_s.toFixed(1)}s raw</span>
+                  </div>
+                  <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                    {allRejected
+                      ? "Fully rejected"
+                      : `${clip.candidate_duration_s.toFixed(1)}s kept (${clip.retention_pct}%)`}
+                  </p>
+                  {reasons.length > 0 && (
+                    <p className="text-[10px] text-red-400 mt-0.5">{reasons.join(", ")}</p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <button
+        onClick={async () => { setProceeding(true); await onProceed(); }}
+        disabled={proceeding}
+        className="w-full py-3 rounded-2xl font-medium text-sm gradient-accent-h text-white disabled:opacity-50 transition-opacity"
+      >
+        {proceeding ? "Analyzing clips with AI…" : "Looks good — analyze & plan edit →"}
+      </button>
+    </div>
+  );
+}
+
+// ── Paper edit review ─────────────────────────────────────────────────────────
+
+function PaperEditReview({
+  manifest, onConfirm,
+}: {
+  manifest: ManifestV2;
+  onConfirm: (sceneIds: string[]) => Promise<void>;
+}) {
+  const [dropped, setDropped] = useState<Set<string>>(new Set());
+  const [confirming, setConfirming] = useState(false);
+
+  const activeScenes = manifest.scenes.filter(s => !dropped.has(s.scene_id));
+  const totalDur = activeScenes.reduce((s, sc) => s + sc.duration_s, 0);
+
+  const toggle = (scene_id: string) =>
+    setDropped(prev => {
+      const next = new Set(prev);
+      next.has(scene_id) ? next.delete(scene_id) : next.add(scene_id);
+      return next;
+    });
+
+  return (
+    <div className="w-full max-w-lg mx-auto space-y-4">
+      <div className="glass rounded-2xl p-5 space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold">AI narrative plan</h3>
+          <p className="text-xs text-[var(--text-muted)] mt-1 leading-relaxed">
+            {manifest.reasoning}
+          </p>
+          {manifest.dropped_scene_count > 0 && (
+            <p className="text-[11px] text-[var(--text-muted)] mt-1">
+              AI excluded {manifest.dropped_scene_count} redundant scene{manifest.dropped_scene_count !== 1 ? "s" : ""}.
+            </p>
+          )}
+        </div>
+
+        <div className="border-t border-[var(--border)] pt-3 space-y-2">
+          {manifest.scenes.map((scene, pos) => {
+            const isDropped = dropped.has(scene.scene_id);
+            const isHook = scene.scene_id === manifest.hook_scene_id;
+            const energyColor =
+              scene.energy === "high" ? "bg-green-400" :
+              scene.energy === "medium" ? "bg-yellow-400" :
+              "bg-[var(--text-muted)]";
+
+            return (
+              <div key={scene.scene_id}
+                className={`flex items-center gap-2.5 glass rounded-xl p-2.5 transition-opacity ${isDropped ? "opacity-35" : ""}`}>
+                {scene.thumbnail_url ? (
+                  <img src={mediaUrl(scene.thumbnail_url)} className="w-16 h-10 object-cover rounded-lg shrink-0" />
+                ) : (
+                  <div className="w-16 h-10 rounded-lg shrink-0 bg-[var(--surface-2)]" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {isHook && (
+                      <span className="text-[10px] font-bold text-[var(--accent)] uppercase tracking-wider">Hook</span>
+                    )}
+                    <span className="text-xs font-medium">Clip {scene.clip_index + 1}</span>
+                    <span className="text-[11px] text-[var(--text-muted)]">· {scene.duration_s.toFixed(1)}s</span>
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${energyColor}`} />
+                    <span className="text-[10px] text-[var(--text-muted)]">{scene.shot_type}</span>
+                  </div>
+                  {scene.description && (
+                    <p className="text-[11px] text-[var(--text-muted)] mt-0.5 line-clamp-2">{scene.description}</p>
+                  )}
+                </div>
+                <button
+                  onClick={() => toggle(scene.scene_id)}
+                  className={`shrink-0 p-1 rounded transition-colors ${isDropped ? "text-[var(--accent)]" : "text-red-400 hover:text-red-300"}`}
+                >
+                  {isDropped ? <RotateCcw size={13} /> : <Trash2 size={13} />}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <button
+        onClick={async () => {
+          setConfirming(true);
+          await onConfirm(activeScenes.map(s => s.scene_id));
+        }}
+        disabled={confirming || activeScenes.length === 0}
+        className="w-full py-3 rounded-2xl font-medium text-sm gradient-accent-h text-white disabled:opacity-50 transition-opacity"
+      >
+        {confirming
+          ? "Refining cuts…"
+          : `Looks good — refine cuts with AI → (${activeScenes.length} scenes · ${totalDur.toFixed(1)}s)`}
+      </button>
+    </div>
+  );
+}
+
+// ── Detailed cut review ───────────────────────────────────────────────────────
+
+function DetailedCutReview({
+  cuts, onRender,
+}: {
+  cuts: DetailedCut[];
+  onRender: (drop: number[]) => Promise<void>;
+}) {
+  const [dropped, setDropped] = useState<Set<number>>(new Set());
+  const [rendering, setRendering] = useState(false);
+
+  const active = cuts.filter(c => !dropped.has(c.cut_index));
+  const totalDur = active.reduce((s, c) => s + c.duration_s, 0);
+
+  const toggle = (cut_index: number) =>
+    setDropped(prev => {
+      const next = new Set(prev);
+      next.has(cut_index) ? next.delete(cut_index) : next.add(cut_index);
+      return next;
+    });
+
+  return (
+    <div className="w-full max-w-lg mx-auto space-y-4">
+      <div className="glass rounded-2xl p-5 space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold">Precision cuts</h3>
+          <p className="text-xs text-[var(--text-muted)] mt-0.5">
+            {cuts.length} cuts · {totalDur.toFixed(1)}s total — drop any you don't want before rendering
+          </p>
+        </div>
+
+        <div className="border-t border-[var(--border)] pt-3 space-y-2">
+          {cuts.map((cut, pos) => {
+            const isDropped = dropped.has(cut.cut_index);
+            const confidenceLow = cut.confidence < 0.6;
+            return (
+              <div key={cut.cut_index}
+                className={`flex items-center gap-2.5 glass rounded-xl p-2.5 transition-opacity ${isDropped ? "opacity-35" : ""}`}>
+                {cut.thumbnail_url ? (
+                  <img src={mediaUrl(cut.thumbnail_url)} className="w-16 h-10 object-cover rounded-lg shrink-0" />
+                ) : (
+                  <div className="w-16 h-10 rounded-lg shrink-0 bg-[var(--surface-2)]" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {pos === 0 && <span className="text-[10px] font-bold text-[var(--accent)] uppercase tracking-wider">Hook</span>}
+                    <span className="text-xs font-medium">Clip {cut.clip_index + 1}</span>
+                    <span className="text-[11px] text-[var(--text-muted)]">· {cut.duration_s.toFixed(1)}s</span>
+                    {confidenceLow && (
+                      <span className="text-[10px] text-yellow-400">center-cut</span>
+                    )}
+                  </div>
+                  {(cut.description || cut.note) && (
+                    <p className="text-[11px] text-[var(--text-muted)] mt-0.5 line-clamp-2">
+                      {cut.description || cut.note}
+                    </p>
+                  )}
+                </div>
+                <button onClick={() => toggle(cut.cut_index)}
+                  className={`shrink-0 p-1 rounded transition-colors ${isDropped ? "text-[var(--accent)]" : "text-red-400 hover:text-red-300"}`}>
+                  {isDropped ? <RotateCcw size={13} /> : <Trash2 size={13} />}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <button
+        onClick={async () => { setRendering(true); await onRender(Array.from(dropped)); }}
+        disabled={rendering || active.length === 0}
+        className="w-full py-3 rounded-2xl font-medium text-sm gradient-accent-h text-white disabled:opacity-50 transition-opacity"
+      >
+        {rendering ? "Rendering…" : `Render ${active.length} cut${active.length !== 1 ? "s" : ""} · ${totalDur.toFixed(1)}s →`}
+      </button>
+    </div>
+  );
+}
+
+// ── Edit result ───────────────────────────────────────────────────────────────
+
 function EditResult({ result, jobId, onReset }: { result: NonNullable<EditState["result"]>; jobId: string; onReset: () => void }) {
   const script = result.script?.spoken_script;
 
@@ -296,7 +606,6 @@ function EditResult({ result, jobId, onReset }: { result: NonNullable<EditState[
         </div>
       </div>
 
-      {/* Script preview */}
       {script && (
         <div className="glass rounded-2xl p-5 space-y-4">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Your Script</h3>
@@ -322,28 +631,32 @@ function EditResult({ result, jobId, onReset }: { result: NonNullable<EditState[
         </div>
       )}
 
-      {/* Rough cut breakdown */}
       {result.rough_cut && (
         <div className="glass rounded-2xl p-5 space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Rough Cut</h3>
             <span className="text-xs text-[var(--text-muted)]">
-              {result.rough_cut.candidate_count}/{result.rough_cut.total_scenes} clips kept · {result.rough_cut.retention_pct}%
+              {result.rough_cut.total_candidate_duration_s.toFixed(1)}s kept · {result.rough_cut.overall_retention_pct}% retained
             </span>
           </div>
           <div className="space-y-1">
-            {result.rough_cut.scenes.map((s, i) => (
-              <div key={i} className="flex items-center gap-2 text-xs py-1 border-b border-[var(--border)] last:border-0">
-                <span className={`w-2 h-2 rounded-full shrink-0 ${s.keep ? "bg-green-400" : "bg-red-400"}`} />
-                <span className="text-[var(--text-muted)] w-20 shrink-0">{s.start.toFixed(1)}–{s.end.toFixed(1)}s</span>
-                <span className="flex-1 text-[var(--text-muted)]">
-                  blur {s.blur.toFixed(0)} · motion {s.motion.toFixed(1)} · brightness {s.brightness.toFixed(0)}
-                </span>
-                {!s.keep && (
-                  <span className="text-red-400 shrink-0">{s.reasons.join(", ")}</span>
-                )}
-              </div>
-            ))}
+            {result.rough_cut.clips.map((clip) => {
+              const allRejected = clip.candidate_count === 0;
+              const reasons = Object.keys(clip.rejection_summary);
+              return (
+                <div key={clip.clip_index} className="flex items-center gap-2 text-xs py-1.5 border-b border-[var(--border)] last:border-0">
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${allRejected ? "bg-red-400" : clip.retention_pct < 60 ? "bg-yellow-400" : "bg-green-400"}`} />
+                  <span className="text-[var(--text-muted)] shrink-0 w-16">Clip {clip.clip_index + 1}</span>
+                  <span className="text-[var(--text-muted)] shrink-0">{clip.raw_duration_s.toFixed(1)}s</span>
+                  <span className="flex-1 text-[var(--text-muted)]">
+                    → {clip.candidate_duration_s.toFixed(1)}s kept ({clip.retention_pct}%)
+                  </span>
+                  {reasons.length > 0 && (
+                    <span className="text-red-400 shrink-0">{reasons.join(", ")}</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

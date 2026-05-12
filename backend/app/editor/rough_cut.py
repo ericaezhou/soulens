@@ -1,12 +1,13 @@
 """
 Pass 1: Universal rough cut — style-agnostic quality filter.
-Pure OpenCV/numpy — $0, no API calls.
+Pure OpenCV/numpy — $0, no external calls.
 
-Window-based analysis (0.5s blocks):
-- Per window: MAX optical flow (catches any shaky frame in the block),
-  median Laplacian blur, mean brightness
-- Reject bad windows, absorb short bad gaps (≤ 1s) between good runs,
-  merge consecutive good windows into candidate clips ≥ 1.5s
+For multi-clip sessions, call in three steps:
+  1. score_clip(path)             → windows with metrics, no thresholding yet
+  2. compute_global_threshold()   → median-of-per-clip-medians (robust to outlier clips)
+  3. build_clip_candidates()      → apply threshold, return candidates + rejected
+
+Single-clip shortcut: run_rough_cut() does all three internally.
 """
 import cv2
 import numpy as np
@@ -16,71 +17,159 @@ import json
 WINDOW_S = 0.5           # score in 0.5-second blocks
 MIN_CLIP_S = 1.5         # drop good segments shorter than this
 GAP_FILL_WINDOWS = 2     # absorb up to 2 consecutive bad windows (~1s) sandwiched between good footage
+FRAME_SAMPLE = 2         # analyze every Nth frame; optical flow normalized by N to keep same scale
 
 THRESHOLDS = {
-    "min_blur": 40.0,           # median Laplacian variance per window — below = blurry
-    "min_brightness": 15.0,     # mean pixel value — below = too dark
-    "max_brightness": 240.0,    # above = overexposed
-    "max_motion": 15.0,         # hard ceiling — always flag above this
-    "min_motion_flag": 8.0,     # never flag below this (prevents false positives on tripod footage)
-    "motion_relative_factor": 2.5,  # also flag if max_motion > factor × video median
+    "min_blur": 40.0,
+    "min_brightness": 15.0,
+    "max_brightness": 240.0,
+    "motion_ceiling": 15.0,     # cap on the computed global threshold
+    "motion_floor": 8.0,        # floor on the computed global threshold
+    "motion_relative_factor": 2.5,
 }
 
 
-def run_rough_cut(video_path: str, scenes: list[dict] | None = None) -> dict:
+# ─── Step 1: Score ────────────────────────────────────────────────────────────
+
+def score_clip(video_path: str) -> tuple[list[dict], float]:
     """
-    Analyse every frame in 0.5s windows.
-    Window max-motion catches shakiness even when only a few frames within it spike.
-    `scenes` accepted for API compatibility but ignored.
+    Read every frame, compute per-window metrics (blur, brightness, max motion).
+    Returns (windows, duration). No thresholding — keep/reasons not set yet.
+    Call compute_global_threshold() across all clips before thresholding.
     """
     duration = _probe_duration(video_path)
     if duration <= 0:
-        return _empty_result()
+        return [], 0.0
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
-        raise ValueError(f"Cannot open video: {video_path}")
+        return [], 0.0
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     frame_scores = _score_all_frames(cap, fps)
     cap.release()
 
     if not frame_scores:
-        return _empty_result()
+        return [], 0.0
 
     windows = _score_windows(frame_scores, fps)
-    _apply_thresholds(windows)
-    candidates, rejected_windows = _build_clips(windows, duration)
+    return windows, duration
+
+
+# ─── Step 2: Global threshold ─────────────────────────────────────────────────
+
+def compute_global_threshold(all_windows: list[list[dict]]) -> float:
+    """
+    Derive one motion threshold for the whole session using median-of-per-clip-medians.
+
+    Why not a simple global median of all windows?
+      A super-shaky clip contributes thousands of high-motion windows and inflates
+      the global median, raising the bar for all normal clips.
+
+    Median-of-medians fixes this: each clip gets one vote (its median), so
+    one outlier clip out of N shifts the result by at most 1/N.
+
+    Examples:
+      12 calm clips (median ≈ 3) + 1 super-shaky clip (median ≈ 30):
+        clip medians → [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 30]
+        median-of-medians → 3  →  threshold = min(15, max(8, 7.5)) = 8
+        shaky clip windows (motion 20–30) >> 8 → mostly rejected ✓
+
+      All handheld clips (median ≈ 6):
+        median-of-medians → 6  →  threshold = min(15, max(8, 15)) = 15
+
+      All tripod clips (median ≈ 2):
+        median-of-medians → 2  →  threshold = min(15, max(8, 5)) = 8
+    """
+    clip_medians = [
+        float(np.median([w["motion_std"] for w in windows]))
+        for windows in all_windows
+        if windows
+    ]
+    if not clip_medians:
+        return THRESHOLDS["max_motion"]
+
+    global_median = float(np.median(clip_medians))
+    return min(
+        THRESHOLDS["motion_ceiling"],
+        max(THRESHOLDS["motion_floor"], global_median * THRESHOLDS["motion_relative_factor"]),
+    )
+
+
+# ─── Step 3: Threshold + build candidates ────────────────────────────────────
+
+def build_clip_candidates(
+    windows: list[dict],
+    duration: float,
+    motion_threshold: float,
+) -> tuple[list[dict], list[dict], dict]:
+    """
+    Apply thresholds and split windows into candidates + rejected.
+    Returns (candidates, rejected_windows, summary_dict).
+    """
+    _apply_thresholds(windows, motion_threshold)
+    candidates, rejected = _build_clips(windows, duration)
 
     raw_dur = round(duration, 2)
     cand_dur = round(sum(c["duration"] for c in candidates), 2)
 
-    return {
-        "total_scenes": len(windows),
+    summary = {
         "candidate_count": len(candidates),
-        "rejected_count": len(rejected_windows),
+        "rejected_count": len(rejected),
         "raw_duration_s": raw_dur,
         "candidate_duration_s": cand_dur,
         "retention_pct": round(cand_dur / raw_dur * 100) if raw_dur > 0 else 0,
-        "rejection_summary": _summarize_rejections(rejected_windows),
+        "rejection_summary": _summarize_rejections(rejected),
+    }
+    return candidates, rejected, summary
+
+
+# ─── Single-clip shortcut ─────────────────────────────────────────────────────
+
+def run_rough_cut(video_path: str, scenes: list[dict] | None = None) -> dict:
+    """
+    Single-clip shortcut: score + self-adaptive threshold + build candidates.
+    For multi-clip sessions use score_clip / compute_global_threshold / build_clip_candidates.
+    """
+    windows, duration = score_clip(video_path)
+    if not windows:
+        return _empty_result()
+
+    motion_threshold = compute_global_threshold([windows])
+    candidates, rejected, summary = build_clip_candidates(windows, duration, motion_threshold)
+
+    return {
+        **summary,
+        "total_scenes": len(windows),
         "candidates": candidates,
-        "rejected": rejected_windows,
+        "rejected": rejected,
     }
 
 
+# ─── Internal helpers ─────────────────────────────────────────────────────────
+
 def _score_all_frames(cap: cv2.VideoCapture, fps: float) -> list[dict]:
-    """Read every frame, compute blur + brightness + motion (optical flow)."""
+    """
+    Read every frame but only decode + analyze every FRAME_SAMPLE-th frame.
+    Optical flow is divided by FRAME_SAMPLE so motion values stay in the same
+    scale as single-frame analysis — thresholds don't need adjustment.
+    """
     scores = []
     prev_gray = None
     frame_idx = 0
 
     while True:
+        if frame_idx % FRAME_SAMPLE != 0:
+            if not cap.grab():   # advance without decoding — much faster
+                break
+            frame_idx += 1
+            continue
+
         ret, frame = cap.read()
         if not ret:
             break
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        # Downsample for speed — analysis at 360p is plenty
         small = cv2.resize(gray, (360, 202))
 
         blur = float(cv2.Laplacian(small, cv2.CV_64F).var())
@@ -91,7 +180,8 @@ def _score_all_frames(cap: cv2.VideoCapture, fps: float) -> list[dict]:
             flow = cv2.calcOpticalFlowFarneback(
                 prev_gray, small, None, 0.5, 3, 15, 3, 5, 1.2, 0
             )
-            motion = float(np.sqrt(flow[..., 0] ** 2 + flow[..., 1] ** 2).mean())
+            # Divide by FRAME_SAMPLE: flow spans N frame intervals, normalize to per-frame scale
+            motion = float(np.sqrt(flow[..., 0] ** 2 + flow[..., 1] ** 2).mean()) / FRAME_SAMPLE
 
         scores.append({
             "frame": frame_idx,
@@ -108,13 +198,7 @@ def _score_all_frames(cap: cv2.VideoCapture, fps: float) -> list[dict]:
 
 
 def _score_windows(frame_scores: list[dict], fps: float) -> list[dict]:
-    """
-    Group frames into WINDOW_S-second blocks, compute metrics only.
-    Thresholding is done separately in _apply_thresholds so the motion
-    threshold can be set adaptively based on the video's own baseline.
-    Use MAX motion — a single shaky frame should fail the whole window.
-    Use MEDIAN blur — robust to single-frame focus glitches.
-    """
+    """Group frames into WINDOW_S blocks. MAX motion, MEDIAN blur, MEAN brightness."""
     window_size = max(1, round(fps * WINDOW_S))
     windows = []
 
@@ -140,56 +224,32 @@ def _score_windows(frame_scores: list[dict], fps: float) -> list[dict]:
     return windows
 
 
-def _apply_thresholds(windows: list[dict]) -> None:
-    """
-    Set keep/reject_reasons on each window using an adaptive motion threshold.
-
-    Adaptive motion threshold = min(hard_ceiling, max(min_flag, median × factor))
-    - Still video (median=2): threshold = min(15, max(8, 5)) = 8  → catches subtle end-shakiness
-    - Handheld (median=5):    threshold = min(15, max(8, 12.5)) = 12.5
-    - Generally shaky (median=10): threshold = min(15, max(8, 25)) = 15  → caps at hard ceiling
-    """
-    if not windows:
-        return
-
-    median_motion = float(np.median([w["motion_std"] for w in windows]))
-    adaptive_max = min(
-        THRESHOLDS["max_motion"],
-        max(THRESHOLDS["min_motion_flag"], median_motion * THRESHOLDS["motion_relative_factor"]),
-    )
-
+def _apply_thresholds(windows: list[dict], motion_threshold: float) -> None:
     for w in windows:
         reasons = []
         if w["blur_score"] < THRESHOLDS["min_blur"]:       reasons.append("blurry")
         if w["brightness"] < THRESHOLDS["min_brightness"]: reasons.append("too_dark")
         if w["brightness"] > THRESHOLDS["max_brightness"]: reasons.append("overexposed")
-        if w["motion_std"] > adaptive_max:                  reasons.append("shaky")
+        if w["motion_std"] > motion_threshold:              reasons.append("shaky")
         w["reject_reasons"] = reasons
         w["keep"] = len(reasons) == 0
 
 
 def _build_clips(windows: list[dict], duration: float) -> tuple[list[dict], list[dict]]:
-    """
-    Merge consecutive good windows into clips.
-    Short bad gaps (≤ GAP_FILL_WINDOWS) sandwiched between good runs are absorbed.
-    """
+    """Merge consecutive good windows; absorb short bad gaps between good runs."""
     if not windows:
         return [], []
 
     n = len(windows)
     filled = [w["keep"] for w in windows]
 
-    # Gap fill: if a short bad run has good footage on both sides, absorb it
     i = 0
     while i < n:
         if not filled[i]:
             j = i
             while j < n and not filled[j]:
                 j += 1
-            run_len = j - i
-            has_good_before = any(filled[:i])
-            has_good_after = any(filled[j:])
-            if run_len <= GAP_FILL_WINDOWS and has_good_before and has_good_after:
+            if (j - i) <= GAP_FILL_WINDOWS and any(filled[:i]) and any(filled[j:]):
                 for k in range(i, j):
                     filled[k] = True
             i = j
@@ -214,7 +274,7 @@ def _build_clips(windows: list[dict], duration: float) -> tuple[list[dict], list
         seg_bright = round(float(np.mean([w["brightness"] for w in chunk])), 1)
         seg_motion = round(float(np.max([w["motion_std"] for w in chunk])), 2)
 
-        reasons = []
+        reasons: list[str] = []
         if not state:
             seen: dict[str, bool] = {}
             for w in chunk:
