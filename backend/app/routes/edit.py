@@ -632,19 +632,17 @@ def _build_selects_from_cuts(segments: list[dict], output_dir: Path) -> Path:
     for i, seg in enumerate(segments):
         seg_out = output_dir / f"select_{i:03d}.mp4"
         dur = seg["end_s"] - seg["start_s"]
+        # Always re-encode with -ss after -i for frame-accurate cuts.
+        # -ss before -i seeks to the nearest keyframe and copies codec data,
+        # which causes presentation-timestamp misalignment and single-frame
+        # flashes at every cut boundary when segments are concatenated.
         cmd = [
-            "ffmpeg", "-ss", f"{seg['start_s']:.3f}", "-i", seg["clip_path"],
-            "-t", f"{dur:.3f}", "-c", "copy", str(seg_out), "-y",
+            "ffmpeg", "-i", seg["clip_path"],
+            "-ss", f"{seg['start_s']:.3f}", "-t", f"{dur:.3f}",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
+            "-c:a", "aac", "-b:a", "192k", str(seg_out), "-y",
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            cmd = [
-                "ffmpeg", "-ss", f"{seg['start_s']:.3f}", "-i", seg["clip_path"],
-                "-t", f"{dur:.3f}",
-                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
-                "-c:a", "aac", "-b:a", "192k", str(seg_out), "-y",
-            ]
-            subprocess.run(cmd, capture_output=True, text=True)
+        subprocess.run(cmd, capture_output=True, text=True)
         if seg_out.exists() and seg_out.stat().st_size > 0:
             segment_paths.append(seg_out)
 
