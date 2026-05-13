@@ -62,11 +62,19 @@ def plan_edit(scenes: list[dict], profile: dict) -> dict:
         )
         + "  - reasoning: 3-4 sentences — why this hook, what you kept vs dropped and why "
         "(reference intent/subject when explaining drops), "
-        "how the remaining scenes tell a complete story in their natural order\n\n"
+        "how the remaining scenes tell a complete story in their natural order\n"
+        "  - duration_hints: assign one timing category to every kept scene (omit dropped scenes):\n"
+        '      "fast"    — walking shots, crowd context, transition B-roll, action the viewer already understands\n'
+        '      "normal"  — standard process shots, generic B-roll without strong narrative weight\n'
+        '      "breathe" — first cultural/historical context after the hook, wide space/spread reveals,\n'
+        "                  any scene that needs a beat to land before the next cut\n"
+        '      "long"    — the hero/money shot (steam rising, food lifted, first bite), visible creator\n'
+        "                  emotion, direct eye contact. Use sparingly — one or two per edit.\n\n"
         "Return ONLY valid JSON:\n"
         "{\n"
         '  "hook_scene_id": "<scene_id>",\n'
         '  "drop": ["<scene_id>", ...],\n'
+        '  "duration_hints": {"<scene_id>": "fast|normal|breathe|long", ...},\n'
         '  "reasoning": "<3-4 sentence plan>"\n'
         "}"
     )
@@ -76,7 +84,7 @@ def plan_edit(scenes: list[dict], profile: dict) -> dict:
 
     response = client.messages.create(
         model=_MODEL,
-        max_tokens=1024,
+        max_tokens=2048,
         messages=[{"role": "user", "content": prompt}],
     )
 

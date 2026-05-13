@@ -450,6 +450,7 @@ async def _run_phase1_and_phase2(job_id: str, edit_dir: Path):
             "hook_scene_id": paper_edit.get("hook_scene_id", ""),
             "drop": paper_edit.get("drop", []),
             "reasoning": paper_edit.get("reasoning", ""),
+            "duration_hints": paper_edit.get("duration_hints", {}),
         }, indent=2))
 
         _write_state(edit_dir, {
@@ -499,6 +500,19 @@ async def _run_phase3(job_id: str, edit_dir: Path):
         if not ordered_scenes:
             _write_state(edit_dir, {"status": "error", "job_id": job_id, "error": "No approved scenes found in catalog."})
             return
+
+        # Merge Phase 2 duration hints into scenes so Phase 3 can use narrative-aware pacing
+        duration_hints: dict = {}
+        paper_edit_raw_path = edit_dir / "paper_edit_raw.json"
+        if paper_edit_raw_path.exists():
+            try:
+                duration_hints = json.loads(paper_edit_raw_path.read_text()).get("duration_hints", {})
+            except Exception:
+                pass
+        for scene in ordered_scenes:
+            sid = scene["scene_id"]
+            base_sid = sid[:-5] if sid.endswith("_hook") else sid
+            scene["duration_hint"] = duration_hints.get(base_sid, "normal")
 
         # Use cached Phase 3 output if approved_ids haven't changed
         precision_cuts_path = edit_dir / "precision_cuts.json"

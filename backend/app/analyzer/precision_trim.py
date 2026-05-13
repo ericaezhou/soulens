@@ -31,6 +31,15 @@ MAX_CUT_S = 6.0
 HOOK_MAX_CUT_S = 2.0  # hook tease is always short — highest energy moment only
 FRAMES_PER_SCENE = 4
 
+# Phase 2 assigns a narrative timing category per scene; Phase 3 resolves it
+# to a target duration by multiplying the creator's avg cut (target_cut_s).
+HINT_MULTIPLIERS = {
+    "fast":    0.7,   # B-roll, transitions, already-understood action
+    "normal":  1.0,   # creator's baseline heartbeat
+    "breathe": 1.6,   # cultural context, wide reveals — let it land
+    "long":    2.2,   # money shot / emotional payoff — one or two per edit
+}
+
 
 def trim_scenes(ordered_scenes: list[dict], profile: dict) -> list[dict]:
     """
@@ -97,8 +106,15 @@ def _trim_block(
         end_state = scene.get("end_state", "")
         action_complete = scene.get("action_complete", True)
 
+        hint = scene.get("duration_hint", "normal")
+        scene_target_s = target_cut_s * HINT_MULTIPLIERS.get(hint, 1.0)
+        # Hook always overrides to short tease regardless of narrative hint
+        if scene.get("is_hook"):
+            scene_target_s = HOOK_MAX_CUT_S
+
         meta_lines = [
             f"Description: {scene['description']}",
+            f"Target: {scene_target_s:.1f}s ({hint})",
         ]
         if key_moment is not None:
             meta_lines.append(
@@ -139,7 +155,7 @@ def _trim_block(
             + f"\nFor each scene ({', '.join(scene_ids)}), pick the exact in-point and out-point.\n"
             f"Rules:\n"
             f"  - start_s / end_s must be within the scene's source range shown above\n"
-            f"  - Minimum {MIN_CUT_S}s, maximum {MAX_CUT_S}s per cut\n"
+            f"  - Minimum {MIN_CUT_S}s per cut; respect each scene's 'Target' duration — it reflects the narrative beat\n"
             f"  - Scenes marked [HOOK TEASE]: trim to max {HOOK_MAX_CUT_S}s — find the single peak moment\n"
             f"  - If a 'Peak moment' timestamp is given, include it if continuity allows — prioritize smooth, watchable cuts over forcing a specific frame\n"
             f"  - Start after motion begins; end at a visual peak or completed action\n"
@@ -194,8 +210,13 @@ def _trim_block(
         confidence = max(0.0, min(1.0, float(raw.get("confidence", 0.5))))
         note = raw.get("note", "")
 
-        # Clamp to source bounds, applying tighter cap for hook tease scenes
-        effective_max = HOOK_MAX_CUT_S if scene.get("is_hook") else MAX_CUT_S
+        # Clamp to source bounds using per-scene narrative target
+        hint = scene.get("duration_hint", "normal")
+        scene_target_s = target_cut_s * HINT_MULTIPLIERS.get(hint, 1.0)
+        if scene.get("is_hook"):
+            effective_max = HOOK_MAX_CUT_S
+        else:
+            effective_max = min(MAX_CUT_S, scene_target_s * 1.5, scene["end_s"] - scene["start_s"])
         start_s = max(scene["start_s"], min(start_s, scene["end_s"] - MIN_CUT_S))
         end_s = max(start_s + MIN_CUT_S, min(end_s, start_s + effective_max, scene["end_s"]))
         dur = end_s - start_s
@@ -248,7 +269,9 @@ def _fallback(scene: dict, target_cut_s: float, reason: str) -> dict:
     else:
         center = (scene["start_s"] + scene["end_s"]) / 2
 
-    effective_target = min(target_cut_s, HOOK_MAX_CUT_S) if scene.get("is_hook") else target_cut_s
+    hint = scene.get("duration_hint", "normal")
+    hinted_target = target_cut_s * HINT_MULTIPLIERS.get(hint, 1.0)
+    effective_target = min(hinted_target, HOOK_MAX_CUT_S) if scene.get("is_hook") else hinted_target
     half = effective_target / 2
     start_s = round(max(scene["start_s"], center - half), 3)
     end_s = round(min(scene["end_s"], start_s + max(effective_target, MIN_CUT_S)), 3)
