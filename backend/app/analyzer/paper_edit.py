@@ -40,6 +40,13 @@ def plan_edit(scenes: list[dict], profile: dict) -> dict:
         "Rules:\n"
         "  - hook_scene_id: the single most visually striking moment for the opening tease "
         "(it also stays in its natural position in the body — do not put it in drop)\n"
+        "  - Narrative arc: use the arc in CREATOR STYLE as a preference compass when choosing what to keep. "
+        "When two scenes are similar quality, prefer the one that fills the next unfilled story beat. "
+        "But quality comes first — never keep a low-energy or incomplete-action scene just to fill a slot. "
+        "Skip a beat gracefully rather than using weak footage as filler. "
+        "The arc shapes personality; quality keeps it watchable.\n"
+        "  - Money shot: if any scene matches the money shot description, always keep it — "
+        "it is the visual anchor of the reel.\n"
         "  - drop: ONLY drop a scene if another kept scene already shows the exact same subject "
         "doing the exact same action — use the Subject field to judge. "
         "Two scenes with the same intent tag are NOT automatically redundant if their subjects differ; "
@@ -122,11 +129,26 @@ def _build_style_text(synthesis: dict) -> str:
     lines = []
     if synthesis.get("hook_formula"):
         lines.append(f"Hook formula: {synthesis['hook_formula']}")
+
     narrative = synthesis.get("cooking_narrative", {})
+
+    sequence = narrative.get("sequence", [])
+    if sequence:
+        beats = "\n".join(f"  {i+1}. {beat}" for i, beat in enumerate(sequence))
+        lines.append(
+            "Narrative arc (preference compass — quality over slot-filling; skip beats with no strong scene):\n"
+            + beats
+        )
+
+    if narrative.get("pacing_within_steps"):
+        lines.append(f"Pacing nuance: {narrative['pacing_within_steps']}")
+
     if narrative.get("money_shot"):
-        lines.append(f"Money shot: {narrative['money_shot']}")
+        lines.append(f"Money shot (always keep if a quality scene exists): {narrative['money_shot']}")
+
     if narrative.get("what_they_skip"):
-        lines.append(f"Skip: {narrative['what_they_skip']}")
+        lines.append(f"Skip content: {narrative['what_they_skip']}")
+
     pacing = synthesis.get("pacing_pattern", {})
     if pacing.get("description"):
         lines.append(f"Pacing: {pacing['description']}")
