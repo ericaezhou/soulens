@@ -16,6 +16,7 @@ from app.analyzer.paper_edit import plan_edit
 from app.analyzer.precision_trim import trim_scenes
 from app.analyzer.frames import grab_frame
 from app.editor.engine import apply_style
+from app.editor.fcpxml import generate_fcpxml
 from app.editor.rough_cut import score_clip, compute_global_threshold, build_clip_candidates
 
 router = APIRouter(prefix="/edit", tags=["edit"])
@@ -618,13 +619,39 @@ async def _render_edit(
 
         _write_state(edit_dir, {"status": "processing", "job_id": job_id, "step": "rendering"})
         edit_result = await asyncio.to_thread(
-            apply_style, str(selects_path), profile, edit_dir, caption_plan, None, False,
+            apply_style, str(selects_path), profile, edit_dir, None, False,
         )
+
+        # FCPXML — references original source clips with per-cut in/out timecodes
+        # so the creator can revert, extend, or trim any cut in Final Cut Pro.
+        fcpxml_stem = Path(edit_result["mp4_path"]).stem
+        fcpxml_path = edit_dir / f"{fcpxml_stem}.fcpxml"
+        active_cuts = [cut for i, cut in enumerate(detailed_cuts) if i not in drop]
+        await asyncio.to_thread(
+            generate_fcpxml,
+            active_cuts,
+            str(fcpxml_path),
+            f"auto-edit-{profile.get('username', 'edit')}",
+            caption_plan,
+        )
+
+        # SRT — editable captions for CapCut / Final Cut / Premiere
+        srt_path = None
+        if caption_plan:
+            srt_path = edit_dir / f"{fcpxml_stem}.srt"
+            srt_path.write_text(_build_srt(caption_plan))
 
         _write_state(edit_dir, {
             "status": "completed",
             "job_id": job_id,
-            "result": {**edit_result, "script": script},
+            "result": {
+                **edit_result,
+                "fcpxml_path": str(fcpxml_path),
+                "fcpxml_filename": fcpxml_path.name,
+                "srt_path": str(srt_path) if srt_path else None,
+                "srt_filename": srt_path.name if srt_path else None,
+                "script": script,
+            },
         })
 
     except Exception as e:
@@ -632,6 +659,19 @@ async def _render_edit(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _build_srt(caption_plan: list[dict]) -> str:
+    def _ts(s: float) -> str:
+        h, rem = divmod(s, 3600)
+        m, sec = divmod(rem, 60)
+        return f"{int(h):02d}:{int(m):02d}:{int(sec):02d},{int((s % 1) * 1000):03d}"
+    blocks = []
+    for i, cap in enumerate(caption_plan, 1):
+        start = cap.get("timestamp_s", 0.0)
+        end = start + cap.get("duration_s", 2.0)
+        blocks.append(f"{i}\n{_ts(start)} --> {_ts(end)}\n{cap.get('text', '')}")
+    return "\n\n".join(blocks) + "\n"
+
 
 def _build_catalog_cuts(detailed_cuts: list[dict], drop: list[int], edit_dir: Path) -> list[dict]:
     """

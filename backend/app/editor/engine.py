@@ -8,14 +8,12 @@ import uuid
 import numpy as np
 from pathlib import Path
 
-from app.editor.fcpxml import generate_fcpxml
 
 
 def apply_style(
     footage_path: str,
     style_profile: dict,
     output_dir: Path,
-    caption_plan: list[dict] | None = None,
     candidate_clips: list[dict] | None = None,
     apply_color: bool = True,
 ) -> dict:
@@ -23,7 +21,6 @@ def apply_style(
 
     output_stem = f"edit_{uuid.uuid4()}"
     mp4_path = output_dir / f"{output_stem}.mp4"
-    fcpxml_path = output_dir / f"{output_stem}.fcpxml"
 
     probe = _probe_video(footage_path)
     if not probe:
@@ -32,8 +29,6 @@ def apply_style(
     duration = probe["duration"]
 
     if candidate_clips is None:
-        # Passthrough: footage is already edited (e.g. selects.mp4 from precision trim).
-        # Just apply color grade if requested — no re-cutting.
         cuts = []
     elif candidate_clips:
         cuts = _clips_to_cuts(candidate_clips, recipe)
@@ -50,36 +45,14 @@ def apply_style(
     color = recipe.get("color", {})
     color_filter = _build_color_filter(color) if apply_color else None
 
-    # Render MP4 — captions are NOT burned in; delivered as a separate SRT file
     cmd = _build_ffmpeg_cmd(footage_path, str(mp4_path), cuts, color_filter)
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if result.returncode != 0:
         raise RuntimeError(f"FFmpeg error: {result.stderr[-800:]}")
 
-    # Generate SRT alongside the MP4 if a caption plan was provided
-    srt_path = None
-    if caption_plan:
-        srt_path = output_dir / f"{output_stem}.srt"
-        srt_path.write_text(_build_srt(caption_plan))
-
-    # Generate FCPXml — in passthrough mode cuts=[] so use a single full-duration clip
-    fcpxml_clips = [dict(c, color=color if apply_color else {}) for c in cuts] or \
-                   [{"start": 0.0, "end": round(duration, 3), "duration": round(duration, 3)}]
-    generate_fcpxml(
-        clips=fcpxml_clips,
-        source_path=str(Path(footage_path).resolve()),
-        output_path=str(fcpxml_path),
-        project_name=f"auto-edit-{style_profile.get('username', 'profile')}",
-        caption_plan=caption_plan,
-    )
-
     return {
         "mp4_path": str(mp4_path),
-        "fcpxml_path": str(fcpxml_path),
-        "srt_path": str(srt_path) if srt_path else None,
         "mp4_filename": mp4_path.name,
-        "fcpxml_filename": fcpxml_path.name,
-        "srt_filename": srt_path.name if srt_path else None,
         "cuts_applied": len(cuts),
         "output_duration_s": round(sum(c["duration"] for c in cuts), 2),
         "grade_style": recipe.get("grade_style", "natural_balanced") if apply_color else "none",
@@ -235,19 +208,3 @@ def _build_ffmpeg_cmd(
     ]
 
 
-def _build_srt(caption_plan: list[dict]) -> str:
-    def _ts(seconds: float) -> str:
-        h = int(seconds // 3600)
-        m = int((seconds % 3600) // 60)
-        s = int(seconds % 60)
-        ms = int((seconds % 1) * 1000)
-        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
-
-    blocks = []
-    for i, cap in enumerate(caption_plan, 1):
-        start = cap.get("timestamp_s", 0.0)
-        end = start + cap.get("duration_s", 2.0)
-        text = cap.get("text", "")
-        blocks.append(f"{i}\n{_ts(start)} --> {_ts(end)}\n{text}")
-
-    return "\n\n".join(blocks) + "\n"
