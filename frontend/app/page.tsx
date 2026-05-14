@@ -26,8 +26,6 @@ export default function Home() {
     if (!loading && !user) router.replace("/login");
   }, [user, loading, router]);
 
-  if (loading || !user) return null;
-
   const startPolling = useCallback((uname: string) => {
     const stop = poll(
       () => getProfileState(uname),
@@ -81,6 +79,8 @@ export default function Home() {
     setError("");
     setConnecting(false);
   };
+
+  if (loading || !user) return null;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "var(--bg)" }}>
