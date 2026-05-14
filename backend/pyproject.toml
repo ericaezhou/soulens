@@ -21,4 +21,5 @@ dependencies = [
     "soundfile>=0.13.1",
     "uvicorn[standard]>=0.46.0",
     "yt-dlp>=2026.3.17",
+    "supabase>=2.30.0",
 ]

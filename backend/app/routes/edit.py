@@ -5,7 +5,7 @@ import asyncio
 import subprocess
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 
 from app.config import UPLOAD_DIR
@@ -18,6 +18,7 @@ from app.analyzer.frames import grab_frame
 from app.editor.engine import apply_style
 from app.editor.fcpxml import generate_fcpxml
 from app.editor.rough_cut import score_clip, compute_global_threshold, build_clip_candidates
+from app.storage import upload_output
 
 router = APIRouter(prefix="/edit", tags=["edit"])
 
@@ -655,14 +656,22 @@ async def _render_edit(
             srt_path = edit_dir / f"{fcpxml_stem}.srt"
             srt_path.write_text(_build_srt(caption_plan))
 
+        # Upload final outputs to Supabase Storage (no-op if not configured)
+        mp4_url = await asyncio.to_thread(upload_output, Path(edit_result["mp4_path"]), job_id)
+        fcpxml_url = await asyncio.to_thread(upload_output, fcpxml_path, job_id)
+        srt_url = await asyncio.to_thread(upload_output, srt_path, job_id) if srt_path else None
+
         _write_state(edit_dir, {
             "status": "completed",
             "job_id": job_id,
             "result": {
                 **edit_result,
+                "mp4_url": mp4_url,
                 "fcpxml_path": str(fcpxml_path),
+                "fcpxml_url": fcpxml_url,
                 "fcpxml_filename": fcpxml_path.name,
                 "srt_path": str(srt_path) if srt_path else None,
+                "srt_url": srt_url,
                 "srt_filename": srt_path.name if srt_path else None,
                 "script": script,
             },
@@ -813,7 +822,16 @@ def _concat_clips(clips: list[Path], job_dir: Path, out_name: str = "footage.mp4
 
 def _download_file(job_id: str, path_key: str, media_type: str, filename: str):
     state = _get_completed_state(job_id)
-    file_path = state.get("result", {}).get(path_key)
+    result = state.get("result", {})
+
+    # Redirect to Supabase public URL if available (production)
+    url_key = path_key.replace("_path", "_url")
+    public_url = result.get(url_key)
+    if public_url:
+        return RedirectResponse(public_url)
+
+    # Fall back to local file (dev, no Supabase configured)
+    file_path = result.get(path_key)
     if not file_path or not Path(file_path).exists():
         raise HTTPException(404, "File not found")
     return FileResponse(file_path, media_type=media_type, filename=filename)
