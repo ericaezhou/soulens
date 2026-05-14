@@ -1,4 +1,12 @@
+import { supabase } from "@/lib/supabase";
+
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return {};
+  return { Authorization: `Bearer ${session.access_token}` };
+}
 
 // ---- Saved Profiles (DB) ----
 
@@ -25,7 +33,7 @@ export async function getProfiles(): Promise<SavedProfile[]> {
 export async function updateProfileReels(slug: string, reelUrls: string[]): Promise<{ username: string }> {
   const res = await fetch(`${API}/profile/${slug}/reels`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify({ reel_urls: reelUrls }),
   });
   if (!res.ok) {
@@ -101,7 +109,7 @@ export interface StyleProfile {
 export async function connectProfile(instagramUrl: string, reelUrls?: string[], displayName?: string): Promise<{ username: string }> {
   const res = await fetch(`${API}/profile/connect`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify({
       instagram_url: instagramUrl,
       ...(displayName ? { display_name: displayName } : {}),
@@ -116,7 +124,7 @@ export async function connectProfile(instagramUrl: string, reelUrls?: string[], 
 }
 
 export async function triggerSynthesis(username: string): Promise<{ username: string }> {
-  const res = await fetch(`${API}/profile/${username}/synthesize`, { method: "POST" });
+  const res = await fetch(`${API}/profile/${username}/synthesize`, { method: "POST", headers: await authHeaders() });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || "Failed to start synthesis");
@@ -236,7 +244,7 @@ export async function startEdit(username: string, footageJobId: string, topic: s
   form.append("footage_job_id", footageJobId);
   form.append("topic", topic);
   form.append("skip_script", String(skipScript));
-  const res = await fetch(`${API}/edit/start`, { method: "POST", body: form });
+  const res = await fetch(`${API}/edit/start`, { method: "POST", body: form, headers: await authHeaders() });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || "Edit failed to start");

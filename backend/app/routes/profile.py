@@ -2,7 +2,8 @@ import json
 import re
 import asyncio
 import shutil
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
+from app.auth import require_auth
 from pydantic import BaseModel
 
 from app.config import PROFILES_DIR
@@ -38,7 +39,7 @@ async def list_all_profiles():
 
 
 @router.post("/connect")
-async def connect_profile(req: ConnectRequest, background_tasks: BackgroundTasks):
+async def connect_profile(req: ConnectRequest, background_tasks: BackgroundTasks, user: dict = Depends(require_auth)):
     try:
         slug = extract_username(req.instagram_url)
     except ValueError as e:
@@ -97,7 +98,7 @@ async def get_profile(slug: str):
 
 
 @router.put("/{slug}/reels")
-async def update_profile_reels(slug: str, req: UpdateReelsRequest, background_tasks: BackgroundTasks):
+async def update_profile_reels(slug: str, req: UpdateReelsRequest, background_tasks: BackgroundTasks, user: dict = Depends(require_auth)):
     """Update the URL set for a profile and re-analyze (pauses before synthesis)."""
     record = get_profile_record(slug)
     if not record:
@@ -140,7 +141,7 @@ async def update_profile_reels(slug: str, req: UpdateReelsRequest, background_ta
 
 
 @router.post("/{slug}/synthesize")
-async def synthesize_profile(slug: str, background_tasks: BackgroundTasks):
+async def synthesize_profile(slug: str, background_tasks: BackgroundTasks, user: dict = Depends(require_auth)):
     """Trigger Claude synthesis after the user confirms (this is where API credits are used)."""
     state = _read_state(slug)
     if not state or state.get("status") != "awaiting_synthesis":

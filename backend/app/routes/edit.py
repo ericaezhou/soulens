@@ -4,7 +4,8 @@ import base64
 import asyncio
 import subprocess
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, BackgroundTasks
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, BackgroundTasks, Depends
+from app.auth import require_auth
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 
@@ -61,6 +62,7 @@ async def start_edit(
     footage_job_id: str = Form(...),
     topic: str = Form(""),
     skip_script: bool = Form(False),
+    user: dict = Depends(require_auth),
 ):
     profile = load_profile(username)
     if not profile:

@@ -1,22 +1,32 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Sparkles, RotateCcw } from "lucide-react";
 import ProfileConnect from "@/components/ProfileConnect";
 import ProfileProgress from "@/components/ProfileProgress";
 import SynthesisGate from "@/components/SynthesisGate";
 import StyleProfileCard from "@/components/StyleProfileCard";
 import EditPanel from "@/components/EditPanel";
+import { useAuth } from "@/components/AuthProvider";
 import { connectProfile, triggerSynthesis, getProfileState, poll, StyleProfile, ProfileState } from "@/lib/api";
 
 type Phase = "connect" | "building" | "ready_to_synthesize" | "profile" | "editing";
 
 export default function Home() {
+  const { user, loading } = useAuth();
+  const router = useRouter();
   const [phase, setPhase] = useState<Phase>("connect");
   const [username, setUsername] = useState("");
   const [profileState, setProfileState] = useState<ProfileState | null>(null);
   const [profile, setProfile] = useState<StyleProfile | null>(null);
   const [error, setError] = useState("");
   const [connecting, setConnecting] = useState(false);
+
+  useEffect(() => {
+    if (!loading && !user) router.replace("/login");
+  }, [user, loading, router]);
+
+  if (loading || !user) return null;
 
   const startPolling = useCallback((uname: string) => {
     const stop = poll(
