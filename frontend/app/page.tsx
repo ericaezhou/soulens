@@ -1,7 +1,7 @@
 "use client";
 import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles, RotateCcw } from "lucide-react";
+import { Sparkles, RotateCcw, LogOut } from "lucide-react";
 import ProfileConnect from "@/components/ProfileConnect";
 import ProfileProgress from "@/components/ProfileProgress";
 import SynthesisGate from "@/components/SynthesisGate";
@@ -13,7 +13,7 @@ import { connectProfile, triggerSynthesis, getProfileState, poll, StyleProfile, 
 type Phase = "connect" | "building" | "ready_to_synthesize" | "profile" | "editing";
 
 export default function Home() {
-  const { user, loading } = useAuth();
+  const { user, loading, signOut } = useAuth();
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("connect");
   const [username, setUsername] = useState("");
@@ -89,16 +89,36 @@ export default function Home() {
           <div className="w-7 h-7 rounded-lg flex items-center justify-center gradient-accent">
             <Sparkles size={13} className="text-white" />
           </div>
-          <span className="font-semibold text-sm tracking-tight">auto-edit</span>
+          <span className="font-semibold text-sm tracking-tight">Soulens</span>
         </div>
-        {phase !== "connect" && (
-          <div className="flex items-center gap-4">
-            {username && <span className="text-xs text-[var(--text-muted)]">@{username}</span>}
-            <button onClick={reset} className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
-              <RotateCcw size={11} /> Start over
+
+        <div className="flex items-center gap-4">
+          {phase !== "connect" && (
+            <>
+              {username && <span className="text-xs text-[var(--text-muted)]">@{username}</span>}
+              <button onClick={reset} className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
+                <RotateCcw size={11} /> Start over
+              </button>
+            </>
+          )}
+
+          {/* User avatar + sign out */}
+          <div className="flex items-center gap-2 pl-2 border-l border-[var(--border)]">
+            <div
+              className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-semibold gradient-accent shrink-0"
+              title={user?.email ?? ""}
+            >
+              {user?.email?.[0]?.toUpperCase() ?? "?"}
+            </div>
+            <button
+              onClick={signOut}
+              className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+              title="Sign out"
+            >
+              <LogOut size={12} />
             </button>
           </div>
-        )}
+        </div>
       </nav>
 
       <main className="flex-1 flex items-start justify-center px-4 py-10 md:py-16">
@@ -148,7 +168,7 @@ export default function Home() {
       </main>
 
       <footer className="text-center py-5 text-xs text-[var(--text-muted)] border-t border-[var(--border)]">
-        auto-edit · AI video editing for Instagram Reel creators
+        Soulens · AI video editing for Instagram creators
       </footer>
     </div>
   );

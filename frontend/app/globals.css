@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #f7f6f4;
+  --bg: #f5f1eb;
   --surface: #ffffff;
   --surface-2: #f0eeeb;
   --border: #e8e4df;
@@ -15,6 +15,7 @@
 
 html {
   color-scheme: light;
+  scroll-behavior: smooth;
 }
 
 body {
