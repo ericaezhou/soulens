@@ -1,14 +1,20 @@
 "use client";
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
 export default function AuthCallbackPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   useEffect(() => {
-    // Supabase automatically exchanges the ?code= param for a session when the
-    // client initialises on this page. We just wait for the session, then redirect.
+    // If Google/Supabase returned an error (e.g. user cancelled), go back to login
+    const error = searchParams.get("error") ?? window.location.hash.match(/error=([^&]+)/)?.[1];
+    if (error) {
+      router.replace("/login");
+      return;
+    }
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_IN" && session) {
         subscription.unsubscribe();
@@ -19,7 +25,6 @@ export default function AuthCallbackPage() {
       }
     });
 
-    // Fallback: if onAuthStateChange doesn't fire, check session directly
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
         subscription.unsubscribe();
@@ -27,8 +32,17 @@ export default function AuthCallbackPage() {
       }
     });
 
-    return () => subscription.unsubscribe();
-  }, [router]);
+    // Fallback: if nothing resolves in 5s, send to login
+    const timeout = setTimeout(() => {
+      subscription.unsubscribe();
+      router.replace("/login");
+    }, 5000);
+
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(timeout);
+    };
+  }, [router, searchParams]);
 
   return (
     <div className="min-h-screen flex items-center justify-center">

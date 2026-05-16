@@ -31,22 +31,26 @@ function timeAgo(iso: string): string {
 }
 
 export default function ProfileConnect({ onSubmit, loading, error }: Props) {
-  const [tab, setTab] = useState<"handle" | "paste" | "saved">("handle");
+  const [tab, setTab] = useState<"handle" | "paste" | "saved">("saved");
   const [url, setUrl] = useState("");
   const [pasteText, setPasteText] = useState("");
   const [profileName, setProfileName] = useState("");
   const [conflict, setConflict] = useState<SavedProfile | null>(null);
   const [savedProfiles, setSavedProfiles] = useState<SavedProfile[]>([]);
+  const [profilesLoaded, setProfilesLoaded] = useState(false);
   const [editingSlug, setEditingSlug] = useState<string | null>(null);
   const conflictTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const detectedUrls = parseReelUrls(pasteText);
 
+  // Load profiles on mount and default to paste tab if none exist
   useEffect(() => {
-    if (tab === "saved") {
-      getProfiles().then(setSavedProfiles);
-    }
-  }, [tab]);
+    getProfiles().then((profiles) => {
+      setSavedProfiles(profiles);
+      setProfilesLoaded(true);
+      if (profiles.length === 0) setTab("paste");
+    });
+  }, []);
 
   useEffect(() => {
     if (conflictTimer.current) clearTimeout(conflictTimer.current);
@@ -90,21 +94,17 @@ export default function ProfileConnect({ onSubmit, loading, error }: Props) {
 
   return (
     <div className="w-full max-w-2xl mx-auto space-y-6">
-      <div className="text-center space-y-3">
-        <div className="inline-flex items-center gap-2 text-xs px-3 py-1.5 rounded-full"
-          style={{
-            background: "rgba(var(--accent-rgb), 0.08)",
-            color: "var(--accent)",
-            border: "1px solid rgba(var(--accent-rgb), 0.15)",
-          }}>
-          Step 1 of 3 — Connect your Instagram
-        </div>
-        <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-          <span className="gradient-text">Your style.</span><br />
-          <span>Our edit.</span>
+      <div className="text-center space-y-2">
+        <h1 className="text-4xl md:text-5xl font-bold tracking-tight leading-tight" style={{ fontFamily: "var(--font-serif)" }}>
+          <span style={{ background: "linear-gradient(135deg, var(--accent), var(--accent-2))", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
+            Your style,
+          </span>{" "}
+          <em style={{ fontStyle: "italic", color: "var(--text)" }}>Soulens edit.</em>
         </h1>
         <p className="text-[var(--text-muted)] max-w-md mx-auto text-sm leading-relaxed">
-          Connect your Instagram profile or paste reel links. We&apos;ll analyze your editing style and build a personal Style Profile.
+          {savedProfiles.length > 0
+            ? "Load a profile to start editing, or create a new one."
+            : "Paste reel links to build your Style Profile."}
         </p>
       </div>
 
@@ -235,42 +235,54 @@ export default function ProfileConnect({ onSubmit, loading, error }: Props) {
 
       {tab === "saved" && (
         <div className="space-y-2">
-          {savedProfiles.length === 0 ? (
-            <div className="glass rounded-2xl p-8 text-center text-sm text-[var(--text-muted)]">
-              No saved profiles yet. Analyze some reels to get started.
+          {!profilesLoaded ? (
+            <div className="glass rounded-2xl p-8 text-center text-sm text-[var(--text-muted)]">Loading…</div>
+          ) : savedProfiles.length === 0 ? (
+            <div className="glass rounded-2xl p-8 text-center space-y-3">
+              <p className="text-sm text-[var(--text-muted)]">No profiles yet.</p>
+              <button onClick={() => setTab("paste")} className="btn-primary text-xs px-4 py-2 rounded-xl font-medium">
+                + Create your first profile
+              </button>
             </div>
           ) : (
-            savedProfiles.map((p) => (
-              <div key={p.slug} className="glass rounded-2xl px-5 py-4 flex items-center gap-4">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold truncate">{p.display_name}</p>
-                  <p className="text-xs text-[var(--text-muted)] flex items-center gap-1.5 mt-0.5">
-                    <Clock size={10} />
-                    {p.reels_analyzed} reels · {timeAgo(p.updated_at)}
-                    {p.status === "processing" && <span style={{ color: "var(--accent)" }}> · building…</span>}
-                    {p.status === "error" && <span className="text-red-400"> · failed</span>}
-                  </p>
+            <>
+              {savedProfiles.map((p) => (
+                <div key={p.slug} className="glass rounded-2xl px-5 py-4 flex items-center gap-4">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate">{p.display_name}</p>
+                    <p className="text-xs text-[var(--text-muted)] flex items-center gap-1.5 mt-0.5">
+                      <Clock size={10} />
+                      {p.reels_analyzed} reels · {timeAgo(p.updated_at)}
+                      {p.status === "processing" && <span style={{ color: "var(--accent)" }}> · building…</span>}
+                      {p.status === "error" && <span className="text-red-400"> · failed</span>}
+                    </p>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      onClick={() => handleDeleteProfile(p.slug)}
+                      className="text-xs p-1.5 rounded-lg text-[var(--text-muted)] hover:text-red-400 glass transition-colors">
+                      <Trash2 size={13} />
+                    </button>
+                    <button
+                      onClick={() => handleEditProfile(p)}
+                      className="text-xs px-3 py-1.5 rounded-lg font-medium text-[var(--text-muted)] glass">
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => onSubmit(p.slug)}
+                      disabled={p.status !== "completed" && p.status !== "awaiting_synthesis"}
+                      className="btn-primary text-xs px-3 py-1.5 rounded-lg font-medium disabled:opacity-40 disabled:cursor-not-allowed">
+                      {p.status === "awaiting_synthesis" ? "Resume" : "Load"}
+                    </button>
+                  </div>
                 </div>
-                <div className="flex gap-2 shrink-0">
-                  <button
-                    onClick={() => handleDeleteProfile(p.slug)}
-                    className="text-xs p-1.5 rounded-lg text-[var(--text-muted)] hover:text-red-400 glass transition-colors">
-                    <Trash2 size={13} />
-                  </button>
-                  <button
-                    onClick={() => handleEditProfile(p)}
-                    className="text-xs px-3 py-1.5 rounded-lg font-medium text-[var(--text-muted)] glass">
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => onSubmit(p.slug)}
-                    disabled={p.status !== "completed" && p.status !== "awaiting_synthesis"}
-                    className="btn-primary text-xs px-3 py-1.5 rounded-lg font-medium disabled:opacity-40 disabled:cursor-not-allowed">
-                    {p.status === "awaiting_synthesis" ? "Resume" : "Load"}
-                  </button>
-                </div>
-              </div>
-            ))
+              ))}
+              <button
+                onClick={() => setTab("paste")}
+                className="w-full glass rounded-2xl px-5 py-3.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors text-center border-dashed">
+                + New profile
+              </button>
+            </>
           )}
         </div>
       )}
@@ -279,19 +291,6 @@ export default function ProfileConnect({ onSubmit, loading, error }: Props) {
         <div className="glass rounded-xl p-3 text-sm text-red-400 text-center border border-red-500/20">{error}</div>
       )}
 
-      <div className="grid grid-cols-3 gap-3 pt-4">
-        {[
-          { n: "01", title: "Connect profile", desc: "Paste reel links or enter your handle to pull your latest Reels" },
-          { n: "02", title: "Style analysis", desc: "AI learns your color grade, pacing, and structure" },
-          { n: "03", title: "Upload & edit", desc: "Drop raw footage. Get a scripted, styled edit + FCPXml" },
-        ].map(({ n, title, desc }) => (
-          <div key={n} className="glass rounded-2xl p-4 space-y-2">
-            <span className="text-xs text-[var(--text-muted)] font-mono">{n}</span>
-            <p className="text-sm font-semibold">{title}</p>
-            <p className="text-xs text-[var(--text-muted)] leading-relaxed">{desc}</p>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }

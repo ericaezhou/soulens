@@ -1,7 +1,7 @@
 "use client";
 import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles, RotateCcw, LogOut } from "lucide-react";
+import { Sparkles, RotateCcw } from "lucide-react";
 import ProfileConnect from "@/components/ProfileConnect";
 import ProfileProgress from "@/components/ProfileProgress";
 import SynthesisGate from "@/components/SynthesisGate";
@@ -102,20 +102,16 @@ export default function Home() {
             </>
           )}
 
-          {/* User avatar + sign out */}
-          <div className="flex items-center gap-2 pl-2 border-l border-[var(--border)]">
-            <div
-              className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-semibold gradient-accent shrink-0"
-              title={user?.email ?? ""}
-            >
-              {user?.email?.[0]?.toUpperCase() ?? "?"}
-            </div>
+          {/* User + sign out */}
+          <div className="flex items-center gap-3 pl-3 border-l border-[var(--border)]">
+            <span className="text-xs text-[var(--text-muted)] hidden sm:block truncate max-w-[160px]">
+              {user?.email}
+            </span>
             <button
               onClick={signOut}
-              className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-              title="Sign out"
+              className="text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text)] transition-colors whitespace-nowrap"
             >
-              <LogOut size={12} />
+              Sign out
             </button>
           </div>
         </div>

@@ -205,10 +205,10 @@ export default function LoginPage() {
           style={{ background: "radial-gradient(ellipse, rgba(147,51,234,0.07) 0%, transparent 70%)" }} />
         <div className="relative max-w-2xl mx-auto space-y-8">
           <h1 className="text-5xl md:text-6xl font-bold tracking-tight leading-tight" style={{ fontFamily: "var(--font-serif)" }}>
-            Your style,{" "}
-            <em style={{ fontStyle: "italic", background: "linear-gradient(135deg, var(--accent), var(--accent-2))", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
-              Soulens edit.
-            </em>
+            <span style={{ background: "linear-gradient(135deg, var(--accent), var(--accent-2))", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
+              Your style,
+            </span>{" "}
+            <em style={{ fontStyle: "italic", color: "var(--text)" }}>Soulens edit.</em>
           </h1>
           <p className="text-base md:text-lg max-w-md mx-auto leading-relaxed" style={{ color: "var(--text-muted)" }}>
             Connect any Instagram style. Upload raw footage.
