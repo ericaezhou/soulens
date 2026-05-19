@@ -9,7 +9,7 @@ from app.db import init_db
 init_db()
 
 app = FastAPI(
-    title="Auto-Edit API",
+    title="Soulens API",
     description="AI video editor that learns your Instagram style and edits new footage for you",
     version="2.0.0",
 )

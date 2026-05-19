@@ -3,12 +3,12 @@ set -e
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
-echo "▶ Starting auto-edit backend..."
+echo "▶ Starting Soulens backend..."
 cd "$ROOT/backend"
 uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 &
 BACKEND_PID=$!
 
-echo "▶ Starting auto-edit frontend..."
+echo "▶ Starting Soulens frontend..."
 cd "$ROOT/frontend"
 npm run dev &
 FRONTEND_PID=$!
