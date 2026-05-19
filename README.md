@@ -1,6 +1,6 @@
 # Soulens
 
-AI video editor that learns an Instagram creator's style (cut, pacing, vibe), then edits and scripts your raw footage to match.
+AI video editor that learns an Instagram creator's style, then edits and scripts your raw footage to match.
 
 ## How it works
 
