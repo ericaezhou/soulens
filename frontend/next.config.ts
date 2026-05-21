@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  turbopack: {
+    root: new URL(".", import.meta.url).pathname,
+  },
 };
 
 export default nextConfig;
