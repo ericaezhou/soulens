@@ -21,7 +21,6 @@ __pycache__/
 *.egg-info/
 dist/
 .pytest_cache/
-backend/uv.lock
 
 # ── Node / Next.js ────────────────────────────────────────────────────────────
 node_modules/
