@@ -47,6 +47,10 @@ export default function Home() {
         }
       },
       3000,
+      (err) => {
+        setError(err.message.includes("not found") ? "Analysis lost — the server restarted. Please try again." : "Connection error. Please try again.");
+        setPhase("connect");
+      },
     );
   }, []);
 

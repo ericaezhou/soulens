@@ -163,7 +163,7 @@ def build_profile(
         if on_progress:
             on_progress(count, total, url, result)
 
-    with ThreadPoolExecutor(max_workers=total) as executor:
+    with ThreadPoolExecutor(max_workers=min(total, 2)) as executor:
         futures = {executor.submit(process, i, url): url for i, url in enumerate(reel_urls)}
         for future in as_completed(futures):
             future.result()  # re-raise any exception

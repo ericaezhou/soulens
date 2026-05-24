@@ -302,12 +302,15 @@ export function poll<T extends { status: string }>(
   fn: () => Promise<T>,
   onUpdate: (data: T) => void,
   intervalMs = 1000,
+  onError?: (err: Error) => void,
 ): () => void {
   let stopped = false;
+  let failures = 0;
   (async () => {
     while (!stopped) {
       try {
         const data = await fn();
+        failures = 0;
         onUpdate(data);
         if (
           data.status === "completed" ||
@@ -316,7 +319,15 @@ export function poll<T extends { status: string }>(
           data.status === "awaiting_paper_edit_review" ||
           data.status === "awaiting_detailed_cut_review"
         ) break;
-      } catch { /* swallow and retry */ }
+      } catch (err) {
+        failures++;
+        // Stop immediately on 404 (profile gone) or after 5 consecutive failures
+        const msg = err instanceof Error ? err.message : "";
+        if (msg.includes("not found") || msg.includes("404") || failures >= 5) {
+          onError?.(err instanceof Error ? err : new Error(msg));
+          break;
+        }
+      }
       await new Promise((r) => setTimeout(r, intervalMs));
     }
   })();
