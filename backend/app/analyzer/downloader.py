@@ -15,6 +15,8 @@ def download_reel(url: str, output_dir: Path) -> dict:
         "merge_output_format": "mp4",
         "quiet": True,
         "no_warnings": True,
+        "socket_timeout": 30,
+        "retries": 2,
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
