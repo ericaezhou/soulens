@@ -129,9 +129,8 @@ export default function ProfileConnect({ onSubmit, loading, error }: Props) {
 
       {tab === "handle" && (
         <form onSubmit={(e) => { e.preventDefault(); if (url.trim()) onSubmit(url.trim()); }}>
-          <div className="relative group">
-            <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-purple-500/20 to-pink-500/20 blur-xl opacity-0 group-focus-within:opacity-100 transition-opacity duration-500" />
-            <div className="relative flex items-center glass rounded-2xl p-1.5 gap-2">
+          <div className="relative">
+            <div className="flex items-center glass rounded-2xl p-1.5 gap-2">
               <span className="pl-4 text-[var(--text-muted)] text-sm shrink-0">@</span>
               <input
                 type="text"
@@ -202,8 +201,7 @@ export default function ProfileConnect({ onSubmit, loading, error }: Props) {
             </div>
           )}
 
-          <div className="relative group">
-            <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-purple-500/20 to-pink-500/20 blur-xl opacity-0 group-focus-within:opacity-100 transition-opacity duration-500" />
+          <div className="relative">
             <textarea
               value={pasteText}
               onChange={(e) => setPasteText(e.target.value)}
