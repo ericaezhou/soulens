@@ -14,7 +14,6 @@ import instaloader
 from app.analyzer.downloader import download_reel
 from app.analyzer.video import detect_scenes, analyze_pacing, analyze_motion, extract_key_frames
 from app.analyzer.audio import analyze_audio
-from app.analyzer.color import analyze_color_grade
 from app.analyzer.transcription import transcribe_audio
 from app.config import PROFILES_DIR, INSTAGRAM_SESSION_ID
 
@@ -80,20 +79,28 @@ def fetch_reel_urls(username: str, count: int = 20) -> list[str]:
     return urls
 
 
-def analyze_single_reel(reel_url: str, reel_dir: Path) -> dict | None:
+def analyze_single_reel(reel_url: str, reel_dir: Path, on_step: Callable[[str], None] | None = None) -> dict | None:
     """Download and fully analyze one reel. Returns None if download fails."""
     try:
+        if on_step: on_step("downloading")
         meta = download_reel(reel_url, reel_dir)
         path = meta["path"]
         duration = meta.get("duration") or 30
 
+        if on_step: on_step("detecting_scenes")
         scenes = detect_scenes(path)
         pacing = analyze_pacing(scenes, duration)
+
+        if on_step: on_step("analyzing_audio")
         audio = analyze_audio(path)
-        color = analyze_color_grade(path, scenes)
+
+        if on_step: on_step("analyzing_motion")
         motion = analyze_motion(path, scenes)
+
+        if on_step: on_step("transcribing")
         transcript = transcribe_audio(path)
 
+        if on_step: on_step("extracting_frames")
         # Extract frames before deleting — scene boundaries give Claude shot type diversity
         frames = extract_key_frames(path, duration, scenes)
 
@@ -114,7 +121,6 @@ def analyze_single_reel(reel_url: str, reel_dir: Path) -> dict | None:
             "meta": meta,
             "pacing": pacing,
             "audio": audio,
-            "color": color,
             "motion": motion,
             "transcript": transcript,
             "beat_sync_ratio": round(beat_sync_ratio, 3),
@@ -129,6 +135,7 @@ def build_profile(
     username: str,
     reel_urls: list[str],
     on_progress: Callable[[int, int, str, dict], None] | None = None,
+    on_step: Callable[[str, str], None] | None = None,
 ) -> dict:
     """
     Analyze all reels and return a raw profile dict (pre-Claude synthesis).
@@ -153,7 +160,10 @@ def build_profile(
         if cache_file.exists():
             result = json.loads(cache_file.read_text())
         else:
-            result = analyze_single_reel(url, user_dir)
+            def step_cb(step_name: str):
+                if on_step:
+                    on_step(shortcode, step_name)
+            result = analyze_single_reel(url, user_dir, on_step=step_cb)
             cache_file.write_text(json.dumps(result))
 
         with lock:

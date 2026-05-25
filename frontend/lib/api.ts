@@ -49,7 +49,6 @@ export interface ReelLogEntry {
   shortcode: string;
   duration_s?: number;
   cuts?: number;
-  grade?: string;
   has_speech?: boolean;
   word_count?: number;
   error?: string;
@@ -64,6 +63,7 @@ export interface ProfileState {
   reels_analyzed?: number;
   reels_failed?: number;
   log?: ReelLogEntry[];
+  active_tasks?: Record<string, string>;
   profile?: StyleProfile;
 }
 

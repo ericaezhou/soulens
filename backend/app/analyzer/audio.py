@@ -13,8 +13,11 @@ def extract_audio(video_path: str, output_path: str) -> bool:
         "-ar", "22050", "-ac", "1",
         output_path, "-y", "-loglevel", "error"
     ]
-    result = subprocess.run(cmd, capture_output=True)
-    return result.returncode == 0
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=60)
+        return result.returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
 
 
 def analyze_audio(video_path: str) -> dict:

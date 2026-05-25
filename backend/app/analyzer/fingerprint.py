@@ -52,7 +52,6 @@ def _call_claude(username: str, reels: list[dict]) -> dict:
     for i, r in enumerate(reels):
         p = r.get("pacing", {})
         a = r.get("audio", {})
-        c = r.get("color", {})
         mo = r.get("motion", {})
         tr = r.get("transcript", {})
         reels_summary.append({
@@ -66,12 +65,6 @@ def _call_claude(username: str, reels: list[dict]) -> dict:
             "bpm": round(a.get("bpm", 0)),
             "beat_sync": round(r.get("beat_sync_ratio", 0), 2),
             "music_intensity": a.get("music_intensity", ""),
-            "color_grade": c.get("grade_style", ""),
-            "saturation": round(c.get("saturation", 0), 2),
-            "brightness": round(c.get("brightness", 0), 2),
-            "contrast": round(c.get("contrast", 0), 2),
-            "warmth": round(c.get("warmth", 0), 3),
-            "eq_params": c.get("eq_params", {}),
             "motion_style": mo.get("motion_style", ""),
             "has_speech": tr.get("has_speech", False),
             "speech_transcript": tr.get("transcript", "")[:400],
@@ -217,65 +210,23 @@ Respond with a JSON object (raw JSON, no markdown):
 
 
 def _extract_edit_recipe(synthesis: dict, reels: list[dict]) -> dict:
-    """
-    Pull the machine-actionable parameters out of Claude's synthesis.
-    This is what the editor engine actually uses.
-    """
+    """Pull machine-actionable parameters from Claude's synthesis for the editor engine."""
     pacing = synthesis.get("pacing_pattern", {})
-    color = synthesis.get("color_recipe", {})
     text = synthesis.get("text_recipe", {})
     structure = synthesis.get("structure_template", {})
 
-    # Average the eq_params across reels as a fallback if Claude didn't produce values
-    avg_eq = _average_eq_params(reels)
+    avg_cut = sum(r.get("pacing", {}).get("avg_cut_duration", 2.0) for r in reels) / max(len(reels), 1)
 
     return {
-        # Pacing
-        "target_cut_duration": pacing.get("target_avg_cut_s") or avg_eq.get("avg_cut", 2.0),
+        "target_cut_duration": pacing.get("target_avg_cut_s") or round(avg_cut, 2),
         "cut_variation": pacing.get("target_variation") or 0.3,
         "beat_sync_strength": pacing.get("beat_sync_strength") or 0.5,
         "opening_style": pacing.get("opening_cuts", "fast"),
         "closing_style": pacing.get("closing_style", "hard_cut"),
-
-        # Structure
         "hook_duration_s": structure.get("hook_duration_s") or 3.0,
         "target_duration_s": structure.get("target_total_duration_s") or 25.0,
         "hook_style": structure.get("hook_style", ""),
-
-        # Color — Claude's values take priority, fall back to averaged measurements
-        "color": {
-            "brightness": color.get("eq_brightness") if color.get("eq_brightness") is not None else avg_eq["brightness"],
-            "contrast": color.get("eq_contrast") if color.get("eq_contrast") is not None else avg_eq["contrast"],
-            "saturation": color.get("eq_saturation") if color.get("eq_saturation") is not None else avg_eq["saturation"],
-            "r_gain": color.get("eq_r_gain") if color.get("eq_r_gain") is not None else avg_eq["r_gain"],
-            "b_gain": color.get("eq_b_gain") if color.get("eq_b_gain") is not None else avg_eq["b_gain"],
-        },
-        "grade_style": color.get("grade_style", "natural_balanced"),
-
-        # Text
         "add_text": text.get("uses_text", False),
         "text_placement": text.get("placement", "lower_third"),
         "text_style": text.get("style", "minimal"),
     }
-
-
-def _average_eq_params(reels: list[dict]) -> dict:
-    """Fallback: average the measured eq params across all reels."""
-    keys = ["brightness", "contrast", "saturation", "r_gain", "b_gain"]
-    totals = {k: 0.0 for k in keys}
-    totals["avg_cut"] = 0.0
-    count = 0
-
-    for r in reels:
-        eq = r.get("color", {}).get("eq_params", {})
-        if not eq:
-            continue
-        for k in keys:
-            totals[k] += eq.get(k, 0)
-        totals["avg_cut"] += r.get("pacing", {}).get("avg_cut_duration", 2.0)
-        count += 1
-
-    if count == 0:
-        return {"brightness": 0, "contrast": 1, "saturation": 1, "r_gain": 1, "b_gain": 1, "avg_cut": 2.0}
-
-    return {k: round(totals[k] / count, 3) for k in list(keys) + ["avg_cut"]}

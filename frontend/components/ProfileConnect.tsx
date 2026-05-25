@@ -48,7 +48,6 @@ export default function ProfileConnect({ onSubmit, loading, error }: Props) {
     getProfiles().then((profiles) => {
       setSavedProfiles(profiles);
       setProfilesLoaded(true);
-      if (profiles.length === 0) setTab("paste");
     });
   }, []);
 
@@ -114,7 +113,7 @@ export default function ProfileConnect({ onSubmit, loading, error }: Props) {
           <button
             key={id}
             onClick={() => setTab(id)}
-            className="flex-1 py-2 px-3 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-1.5"
+            className="flex-1 py-2 px-3 rounded-xl text-sm font-medium transition-colors duration-150 flex items-center justify-center gap-1.5 outline-none"
             style={tab === id ? {
               background: `linear-gradient(135deg, rgba(var(--accent-rgb), 0.15), rgba(var(--accent-2-rgb), 0.2))`,
               color: "var(--text)",

@@ -127,13 +127,14 @@ export default function Home() {
             <ProfileConnect onSubmit={handleConnect} loading={connecting} error={error} />
           )}
 
-          {phase === "building" && profileState && (
+          {phase === "building" && (
             <ProfileProgress
               username={username}
-              step={profileState.step}
-              progress={profileState.progress}
-              total={profileState.total}
-              log={profileState.log}
+              step={profileState?.step}
+              progress={profileState?.progress}
+              total={profileState?.total}
+              log={profileState?.log}
+              activeTasks={profileState?.active_tasks}
             />
           )}
 

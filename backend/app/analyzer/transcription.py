@@ -26,7 +26,7 @@ def transcribe_audio(video_path: str) -> dict:
 
         subprocess.run(
             ["ffmpeg", "-i", video_path, "-ar", "16000", "-ac", "1", "-f", "wav", "-y", wav_path],
-            capture_output=True, check=True,
+            capture_output=True, check=True, timeout=60,
         )
 
         model = _get_model()

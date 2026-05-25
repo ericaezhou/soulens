@@ -2,6 +2,7 @@ import json
 import re
 import asyncio
 import shutil
+import threading
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from app.auth import require_auth
 from pydantic import BaseModel
@@ -188,9 +189,27 @@ async def _run_profile_build(username: str, count: int = 20, preset_urls: list[s
         _write_state(username, {"status": "processing", "step": "analyzing_reels", "progress": 0, "total": total})
 
         progress_state: dict = {"done": 0, "log": []}
+        active_tasks: dict = {}
+        state_lock = threading.Lock()
+
+        def _flush_state():
+            with state_lock:
+                _write_state(username, {
+                    "status": "processing",
+                    "step": "analyzing_reels",
+                    "progress": progress_state["done"],
+                    "total": total,
+                    "log": list(progress_state["log"]),
+                    "active_tasks": dict(active_tasks),
+                })
+
+        def on_step(shortcode: str, step: str):
+            active_tasks[shortcode] = step
+            _flush_state()
 
         def on_progress(completed: int, total: int, url: str, result: dict):
             shortcode = url.rstrip("/").split("/")[-1]
+            active_tasks.pop(shortcode, None)
             if "error" in result:
                 entry = {"shortcode": shortcode, "error": result["error"]}
             else:
@@ -198,21 +217,14 @@ async def _run_profile_build(username: str, count: int = 20, preset_urls: list[s
                     "shortcode": shortcode,
                     "duration_s": round(result.get("meta", {}).get("duration") or 0),
                     "cuts": result.get("pacing", {}).get("cut_count", 0),
-                    "grade": result.get("color", {}).get("grade_style", ""),
                     "has_speech": result.get("transcript", {}).get("has_speech", False),
                     "word_count": result.get("transcript", {}).get("word_count", 0),
                 }
             progress_state["done"] = completed
             progress_state["log"].append(entry)
-            _write_state(username, {
-                "status": "processing",
-                "step": "analyzing_reels",
-                "progress": completed,
-                "total": total,
-                "log": list(progress_state["log"]),
-            })
+            _flush_state()
 
-        raw_profile = await asyncio.to_thread(build_profile, username, reel_urls, on_progress)
+        raw_profile = await asyncio.to_thread(build_profile, username, reel_urls, on_progress, on_step)
 
         # Persist raw analysis so synthesis can be triggered later
         raw_path = PROFILES_DIR / username / "raw_profile.json"

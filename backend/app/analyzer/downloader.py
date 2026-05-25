@@ -10,13 +10,14 @@ def download_reel(url: str, output_dir: Path) -> dict:
 
     ydl_opts = {
         "outtmpl": str(output_dir / f"{video_id}_raw.%(ext)s"),
-        # Single combined stream — no merging, no format enumeration overhead
-        "format": "best[height<=480]/best",
+        "format": "best[height<=360]/best",
         "merge_output_format": "mp4",
         "quiet": True,
         "no_warnings": True,
-        "socket_timeout": 30,
-        "retries": 2,
+        "socket_timeout": 20,
+        "retries": 1,
+        # Abort if download speed drops below 30KB/s — catches throttled Railway connections
+        "throttledratelimit": 30_000,
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -33,15 +34,15 @@ def download_reel(url: str, output_dir: Path) -> dict:
     probe = subprocess.run(
         ["ffprobe", "-v", "quiet", "-select_streams", "v:0",
          "-show_entries", "stream=codec_name", "-of", "csv=p=0", str(downloaded)],
-        capture_output=True, text=True,
+        capture_output=True, text=True, timeout=30,
     )
     if probe.stdout.strip() != "h264":
         subprocess.run(
             ["ffmpeg", "-i", str(downloaded),
-             "-vf", "scale=-2:480",
+             "-vf", "scale=-2:360",
              "-c:v", "libx264", "-preset", "ultrafast",
-             "-crf", "28", "-c:a", "aac", "-b:a", "128k", "-y", str(final_path)],
-            check=True, capture_output=True,
+             "-crf", "30", "-c:a", "aac", "-b:a", "64k", "-y", str(final_path)],
+            check=True, capture_output=True, timeout=120,
         )
         downloaded.unlink(missing_ok=True)
     else:
