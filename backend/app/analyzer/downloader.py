@@ -16,8 +16,6 @@ def download_reel(url: str, output_dir: Path) -> dict:
         "no_warnings": True,
         "socket_timeout": 20,
         "retries": 1,
-        # Abort if download speed drops below 30KB/s — catches throttled Railway connections
-        "throttledratelimit": 30_000,
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
