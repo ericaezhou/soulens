@@ -1,6 +1,6 @@
 "use client";
 import { StyleProfile } from "@/lib/api";
-import { Sparkles, Zap, Film, Palette, Camera, ChefHat, ListChecks, Wand2 } from "lucide-react";
+import { Sparkles, Zap, Film, Camera, ChefHat, ListChecks, Wand2 } from "lucide-react";
 
 interface Props {
   profile: StyleProfile;
@@ -126,27 +126,20 @@ export default function StyleProfileCard({ profile, onStartEdit }: Props) {
         </Section>
       )}
 
-      {/* Pacing + Color */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <Section icon={<Film size={13} />} label="Pacing">
-          <p className="text-sm leading-relaxed">{s.pacing_pattern?.description}</p>
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            <div className="rounded-xl p-2.5 text-center" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-              <p className="text-[10px] uppercase tracking-wide font-medium text-[var(--text-muted)]">Avg cut</p>
-              <p className="text-xl font-bold">{recipe.target_cut_duration?.toFixed(1)}s</p>
-            </div>
-            <div className="rounded-xl p-2.5 text-center" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-              <p className="text-[10px] uppercase tracking-wide font-medium text-[var(--text-muted)]">Target length</p>
-              <p className="text-xl font-bold">{recipe.target_duration_s?.toFixed(0)}s</p>
-            </div>
+      {/* Pacing */}
+      <Section icon={<Film size={13} />} label="Pacing">
+        <p className="text-sm leading-relaxed">{s.pacing_pattern?.description}</p>
+        <div className="grid grid-cols-2 gap-2 pt-1">
+          <div className="rounded-xl p-2.5 text-center" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+            <p className="text-[10px] uppercase tracking-wide font-medium text-[var(--text-muted)]">Avg cut</p>
+            <p className="text-xl font-bold">{recipe.target_cut_duration?.toFixed(1)}s</p>
           </div>
-        </Section>
-
-        <Section icon={<Palette size={13} />} label="Color Grade">
-          <p className="text-sm leading-relaxed">{s.color_recipe?.description}</p>
-          <Tag>{recipe.grade_style?.replace(/_/g, " ")}</Tag>
-        </Section>
-      </div>
+          <div className="rounded-xl p-2.5 text-center" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+            <p className="text-[10px] uppercase tracking-wide font-medium text-[var(--text-muted)]">Target length</p>
+            <p className="text-xl font-bold">{recipe.target_duration_s?.toFixed(0)}s</p>
+          </div>
+        </div>
+      </Section>
 
       {/* Signature Moves */}
       {s.signature_moves && s.signature_moves.length > 0 && (
