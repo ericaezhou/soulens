@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 
 from app.config import UPLOAD_DIR
-from app.analyzer.profile_builder import load_profile
+from app.db import load_profile_data
 from app.analyzer.scriptwriter import generate_script_and_captions
 from app.analyzer.cataloger import catalog_clips
 from app.analyzer.paper_edit import plan_edit
@@ -64,7 +64,8 @@ async def start_edit(
     skip_script: bool = Form(False),
     user: dict = Depends(require_auth),
 ):
-    profile = load_profile(username)
+    user_id = user["sub"]
+    profile = load_profile_data(user_id, username)
     if not profile:
         raise HTTPException(404, f"No style profile found for @{username}.")
 
@@ -92,7 +93,7 @@ async def start_edit(
 
     background_tasks.add_task(
         _run_rough_cut,
-        edit_job_id, clip_paths, profile, topic, edit_dir, skip_script,
+        edit_job_id, clip_paths, profile, topic, edit_dir, skip_script, user_id,
     )
     return {"job_id": edit_job_id, "status": "processing"}
 
@@ -173,7 +174,7 @@ async def finalize_edit(job_id: str, body: FinalizeRequest, background_tasks: Ba
         raise HTTPException(400, f"Job is not awaiting finalization (status: {state.get('status')})")
 
     config = state.get("_config", {})
-    profile = load_profile(config.get("username", ""))
+    profile = load_profile_data(config.get("user_id", ""), config.get("username", ""))
     if not profile:
         raise HTTPException(404, "Profile no longer found")
 
@@ -252,6 +253,7 @@ async def _run_rough_cut(
     topic: str,
     edit_dir: Path,
     skip_script: bool,
+    user_id: str = "",
 ):
     try:
         _write_state(edit_dir, {"status": "processing", "job_id": job_id, "step": "rough_cut"})
@@ -325,7 +327,7 @@ async def _run_rough_cut(
             "status": "awaiting_rough_cut_review",
             "job_id": job_id,
             "rough_cut": rough_summary,
-            "_config": {"username": profile.get("username"), "topic": topic, "skip_script": skip_script},
+            "_config": {"username": profile.get("username"), "topic": topic, "skip_script": skip_script, "user_id": user_id},
             "_clip_paths": clip_paths,
         })
 
@@ -356,7 +358,7 @@ async def _run_phase1_and_phase2(job_id: str, edit_dir: Path):
             })
             return
 
-        profile = load_profile(config.get("username", ""))
+        profile = load_profile_data(config.get("user_id", ""), config.get("username", ""))
         if not profile:
             _write_state(edit_dir, {"status": "error", "job_id": job_id, "error": "Profile not found"})
             return
@@ -481,7 +483,7 @@ async def _run_phase3(job_id: str, edit_dir: Path):
         approved_ids: list[str] = state.get("_approved_scene_ids", [])
         rough_cut = state.get("rough_cut", {})
 
-        profile = load_profile(config.get("username", ""))
+        profile = load_profile_data(config.get("user_id", ""), config.get("username", ""))
         if not profile:
             _write_state(edit_dir, {"status": "error", "job_id": job_id, "error": "Profile not found"})
             return
