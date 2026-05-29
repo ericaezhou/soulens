@@ -47,19 +47,21 @@ export default function ProfileProgress({
       </div>
 
       <div className="glass rounded-2xl p-6 space-y-5">
-        {/* Progress bar */}
-        <div className="space-y-2">
-          <div className="flex justify-between text-xs text-[var(--text-muted)]">
-            <span>{step === "analyzing_reels" ? `${progress} of ${total} reels done` : "Overall progress"}</span>
-            <span>{pct}%</span>
+        {/* Progress bar — hidden during synthesis (no trackable sub-steps) */}
+        {!isSynthesizing && (
+          <div className="space-y-2">
+            <div className="flex justify-between text-xs text-[var(--text-muted)]">
+              <span>{step === "analyzing_reels" ? `${progress} of ${total} reels done` : "Overall progress"}</span>
+              <span>{pct}%</span>
+            </div>
+            <div className="h-1.5 bg-[var(--surface-2)] rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full gradient-accent-h transition-all duration-700"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
           </div>
-          <div className="h-1.5 bg-[var(--surface-2)] rounded-full overflow-hidden">
-            <div
-              className="h-full rounded-full gradient-accent-h transition-all duration-700"
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-        </div>
+        )}
 
         {/* Live active tasks */}
         {!isSynthesizing && activeEntries.length > 0 && (
@@ -122,14 +124,17 @@ export default function ProfileProgress({
         )}
 
         {isSynthesizing && (
-          <div className="flex items-center gap-3 text-xs">
-            <span className="relative flex h-2 w-2 shrink-0">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
-                style={{ background: "var(--accent)" }} />
-              <span className="relative inline-flex rounded-full h-2 w-2"
-                style={{ background: "var(--accent)" }} />
-            </span>
-            <span className="text-[var(--text-muted)]">Sending {total} reels to Claude for style synthesis…</span>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 text-xs">
+              <span className="relative flex h-2 w-2 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+                  style={{ background: "var(--accent)" }} />
+                <span className="relative inline-flex rounded-full h-2 w-2"
+                  style={{ background: "var(--accent)" }} />
+              </span>
+              <span style={{ color: "var(--text)" }}>Soulens is synthesizing your style profile…</span>
+            </div>
+            <p className="text-xs text-[var(--text-muted)] pl-5">This usually takes 30–60 seconds.</p>
           </div>
         )}
       </div>
