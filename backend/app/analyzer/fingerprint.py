@@ -132,7 +132,6 @@ Respond with a JSON object (raw JSON, no markdown):
   "visual_identity": {{
     "shot_composition": "How they frame shots — POV, overhead, eye-level, close-up ratio",
     "camera_work": "Handheld, static, dolly moves, etc.",
-    "lighting_style": "What their lighting looks like (natural, warm, moody, bright studio, etc.)",
     "transition_style": "How they cut between shots (hard cut, match cut, whip pan, etc.)"
   }},
 

@@ -1,29 +1,49 @@
 "use client";
+import { useState } from "react";
 import { StyleProfile } from "@/lib/api";
-import { Sparkles, Zap, Camera, Clapperboard, ListChecks } from "lucide-react";
+import { Sparkles, Zap, Camera, Clapperboard, ListChecks, ChevronDown } from "lucide-react";
 
 interface Props {
   profile: StyleProfile;
   onStartEdit: () => void;
 }
 
-function Section({ icon, label, badge, children }: {
+function Section({ icon, label, badge, children, defaultOpen = false }: {
   icon: React.ReactNode;
   label: string;
   badge?: string;
   children: React.ReactNode;
+  defaultOpen?: boolean;
 }) {
+  const [open, setOpen] = useState(defaultOpen);
+
   return (
-    <div className="glass rounded-2xl p-5 space-y-3">
-      <div className="flex items-center gap-2">
+    <div className="glass rounded-2xl overflow-hidden">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-white/5"
+      >
         <span className="text-[var(--accent)]">{icon}</span>
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">{label}</h3>
+        <h3 className="text-sm font-medium flex-1" style={{ color: "var(--text)" }}>{label}</h3>
         {badge && (
-          <span className="text-xs px-1.5 py-0.5 rounded-md font-medium"
+          <span className="text-[11px] px-2 py-0.5 rounded-full font-medium mr-1"
             style={{ background: "rgba(var(--accent-rgb), 0.08)", color: "var(--accent)" }}>{badge}</span>
         )}
-      </div>
-      {children}
+        <ChevronDown
+          size={14}
+          className="transition-transform duration-200 shrink-0"
+          style={{
+            color: "var(--text-muted)",
+            transform: open ? "rotate(180deg)" : "rotate(0deg)",
+          }}
+        />
+      </button>
+
+      {open && (
+        <div className="px-5 pb-5 border-t" style={{ borderColor: "var(--border)" }}>
+          <div className="pt-4">{children}</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -85,9 +105,9 @@ export default function StyleProfileCard({ profile, onStartEdit }: Props) {
         </div>
       </div>
 
-      {/* Hook Formula */}
+      {/* Hook Formula — open by default */}
       {s.hook_formula && (
-        <Section icon={<Zap size={13} />} label="Hook Formula">
+        <Section icon={<Zap size={13} />} label="Hook Formula" defaultOpen>
           <p className="text-sm leading-relaxed">{s.hook_formula}</p>
         </Section>
       )}
@@ -122,20 +142,19 @@ export default function StyleProfileCard({ profile, onStartEdit }: Props) {
         </Section>
       )}
 
-      {/* Visual Identity */}
+      {/* Visual Identity — lighting removed */}
       {s.visual_identity && (
         <Section icon={<Camera size={13} />} label="Visual Identity">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="space-y-2">
             {([
               ["Composition", s.visual_identity.shot_composition],
-              ["Lighting", s.visual_identity.lighting_style],
               ["Camera", s.visual_identity.camera_work],
               ["Transitions", s.visual_identity.transition_style],
             ] as [string, string | undefined][]).filter(([, v]) => v).map(([label, value]) => (
-              <div key={label} className="rounded-xl p-3 space-y-1"
-                style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">{label}</p>
-                <p className="text-xs leading-relaxed">{value}</p>
+              <div key={label} className="flex gap-3 text-xs"
+                style={{ borderBottom: "1px solid var(--border)", paddingBottom: "8px" }}>
+                <span className="font-semibold uppercase tracking-wider text-[var(--text-muted)] shrink-0 w-24">{label}</span>
+                <span className="leading-relaxed">{value}</span>
               </div>
             ))}
           </div>
@@ -158,7 +177,7 @@ export default function StyleProfileCard({ profile, onStartEdit }: Props) {
 
       {/* Editing Instructions */}
       {s.replication_instructions && s.replication_instructions.length > 0 && (
-        <Section icon={<ListChecks size={13} />} label="Editing Instructions" badge="step-by-step">
+        <Section icon={<ListChecks size={13} />} label="Editing Instructions">
           <ol className="space-y-3">
             {s.replication_instructions.map((step: string, i: number) => (
               <li key={i} className="flex gap-3 text-sm leading-relaxed">
