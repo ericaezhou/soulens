@@ -113,11 +113,11 @@ Look specifically at:
 Respond with a JSON object (raw JSON, no markdown):
 
 {{
-  "style_name": "2-3 word editing identity (e.g. 'Kinetic Kitchen', 'Raw Energy Cuts')",
-  "vibe": "One sentence: what does watching their content feel like?",
-  "creator_niche": "Describe their content FORMAT and narrative approach in one sentence — e.g. 'step-by-step tutorial videos with personal storytelling', 'candid day-in-the-life vlogs with high energy editing', 'cinematic location showcases with minimal narration'. Describe the style and format, not the specific subject matter.",
-  "content_type": "Short label for the content format (e.g. 'tutorial', 'vlog', 'showcase', 'review', 'challenge')",
-  "creator_archetype": "Their creator persona in 3-5 words (e.g. 'the relatable teacher', 'the hype storyteller')",
+  "style_name": "2-5 words capturing this creator's aesthetic PERSONALITY the way a filmmaker names their visual style or a musician names their sound. Evocative and specific to their energy, NOT editing technique vocabulary. Good examples: 'Saturday Kitchen Energy', 'Warmth Without Effort', 'Your Talented Friend', 'Zero Pretension Chef', 'The Chill Perfectionist'. Avoid technical compound words like 'Kinetic', 'Cuts', 'Edit', 'Cinematic'.",
+  "vibe": "One sentence that makes someone feel exactly what it is like to watch their content. Write in warm conversational prose with no em dashes, no colons, and no bullet points.",
+  "creator_niche": "One sentence describing their content FORMAT and narrative approach — e.g. 'Step-by-step tutorial videos with personal storytelling and casual narration' or 'Candid day-in-the-life vlogs with high-energy editing and humor'. Describe the style and format, not the specific subject matter.",
+  "content_type": "1-3 words only — the content format (e.g. 'Tutorial', 'Vlog', 'Showcase', 'Review', 'Challenge'). No sentences.",
+  "creator_archetype": "Their creator persona in 4-5 words starting with 'The' (e.g. 'The Relatable Home Cook', 'The Hype Educator', 'The Chill Perfectionist'). No sentences, no commas.",
 
   "hook_formula": "Exactly what they do in the first 3 seconds — what's in frame, what text appears, what energy",
 
