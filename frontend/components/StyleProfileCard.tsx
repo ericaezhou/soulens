@@ -1,6 +1,6 @@
 "use client";
 import { StyleProfile } from "@/lib/api";
-import { Sparkles, Zap, Film, Camera, ChefHat, ListChecks, Wand2 } from "lucide-react";
+import { Sparkles, Zap, Film, Camera, Clapperboard, ListChecks, Wand2 } from "lucide-react";
 
 interface Props {
   profile: StyleProfile;
@@ -45,6 +45,11 @@ export default function StyleProfileCard({ profile, onStartEdit }: Props) {
   const s = profile.synthesis;
   const recipe = profile.edit_recipe;
 
+  // Support both new (content_narrative) and old (cooking_narrative) profiles
+  const narrative = s.content_narrative || s.cooking_narrative;
+  const climaxLabel = s.content_narrative ? "Climax moment" : "Money shot";
+  const climaxValue = (narrative as any)?.climax_moment || (narrative as any)?.money_shot;
+
   return (
     <div className="w-full max-w-3xl mx-auto space-y-3">
 
@@ -60,6 +65,9 @@ export default function StyleProfileCard({ profile, onStartEdit }: Props) {
             </div>
             <h2 className="text-2xl font-bold gradient-text">{s.style_name || "Your Style"}</h2>
             <p className="text-sm leading-relaxed text-[var(--text-muted)]">{s.vibe}</p>
+            {s.creator_niche && (
+              <p className="text-xs leading-relaxed text-[var(--text-muted)] italic pt-0.5">{s.creator_niche}</p>
+            )}
           </div>
           <div className="flex flex-col items-end gap-1.5 shrink-0 max-w-[40%]">
             {s.content_type && <Tag>{s.content_type}</Tag>}
@@ -76,13 +84,13 @@ export default function StyleProfileCard({ profile, onStartEdit }: Props) {
         </Section>
       )}
 
-      {/* Cooking Narrative */}
-      {s.cooking_narrative && (
-        <Section icon={<ChefHat size={13} />} label="Cooking Narrative">
-          <p className="text-sm leading-relaxed">{s.cooking_narrative.description}</p>
-          {s.cooking_narrative.sequence && s.cooking_narrative.sequence.length > 0 && (
+      {/* Content Narrative */}
+      {narrative && (
+        <Section icon={<Clapperboard size={13} />} label="Content Narrative">
+          <p className="text-sm leading-relaxed">{narrative.description}</p>
+          {narrative.sequence && narrative.sequence.length > 0 && (
             <div className="flex flex-wrap gap-1.5 pt-1">
-              {s.cooking_narrative.sequence.map((step: string, i: number) => (
+              {narrative.sequence.map((step: string, i: number) => (
                 <span key={i} className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full"
                   style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
                   <span className="font-mono font-semibold text-[var(--accent)]">{i + 1}</span>
@@ -91,16 +99,16 @@ export default function StyleProfileCard({ profile, onStartEdit }: Props) {
               ))}
             </div>
           )}
-          {s.cooking_narrative.money_shot && (
+          {climaxValue && (
             <p className="text-xs pt-1 text-[var(--text-muted)]">
-              <span className="font-medium text-[var(--accent)]">Money shot: </span>
-              {s.cooking_narrative.money_shot}
+              <span className="font-medium text-[var(--accent)]">{climaxLabel}: </span>
+              {climaxValue}
             </p>
           )}
-          {s.cooking_narrative.what_they_skip && (
+          {narrative.what_they_skip && (
             <p className="text-xs text-[var(--text-muted)]">
               <span className="font-medium text-[var(--accent)]">Skips: </span>
-              {s.cooking_narrative.what_they_skip}
+              {narrative.what_they_skip}
             </p>
           )}
         </Section>

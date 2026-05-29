@@ -103,9 +103,9 @@ def _call_claude(username: str, reels: list[dict]) -> dict:
 Your job: find PATTERNS across all reels — not averages. What does this creator CONSISTENTLY do?
 Look specifically at:
 - Shot composition and framing (from the frames)
-- How they structure cooking content: what steps they show, what they skip, what order
+- How they structure their content: what moments they show, what they skip, what order
 - Their hook formula: exactly what's in frame 0-3s to grab attention
-- Their money shot: the climax/hero visual that makes people save the video
+- Their climax moment: the hero visual or payoff that makes people save the video
 - Pacing rhythm: does it match beat drops, speech, or action?
 - Their verbal style: what they say, how they narrate (from speech_transcript), tone and vocabulary
 - Text vs. speech: do they caption text or just narrate verbally?
@@ -113,47 +113,37 @@ Look specifically at:
 Respond with a JSON object (raw JSON, no markdown):
 
 {{
-  "style_name": "2-3 word editing identity (e.g. 'Kinetic Kitchen')",
+  "style_name": "2-3 word editing identity (e.g. 'Kinetic Kitchen', 'Raw Energy Cuts')",
   "vibe": "One sentence: what does watching their content feel like?",
-  "content_type": "Type of content (cooking tutorial, recipe, GRWM, etc.)",
-  "creator_archetype": "Their creator persona (e.g. 'the relatable chef', 'the technique teacher')",
+  "creator_niche": "Describe their content FORMAT and narrative approach in one sentence — e.g. 'step-by-step tutorial videos with personal storytelling', 'candid day-in-the-life vlogs with high energy editing', 'cinematic location showcases with minimal narration'. Describe the style and format, not the specific subject matter.",
+  "content_type": "Short label for the content format (e.g. 'tutorial', 'vlog', 'showcase', 'review', 'challenge')",
+  "creator_archetype": "Their creator persona in 3-5 words (e.g. 'the relatable teacher', 'the hype storyteller')",
 
   "hook_formula": "Exactly what they do in the first 3 seconds — what's in frame, what text appears, what energy",
 
-  "cooking_narrative": {{
-    "description": "How they structure a cooking reel start to finish",
-    "sequence": ["ordered list of the steps they show, e.g. 'ingredients reveal', 'prep close-up', 'heat/cook', 'plating', 'first bite'"],
-    "what_they_skip": "What parts of cooking they cut out entirely",
-    "money_shot": "Their go-to hero shot — what it looks like and when it appears",
-    "pacing_within_steps": "Do they linger on certain steps? Which ones and why?"
+  "content_narrative": {{
+    "description": "How they structure a typical reel from start to finish — adapted to their content type",
+    "sequence": ["ordered list of the distinct moments/beats they consistently show, e.g. 'attention hook', 'context setup', 'main action build', 'payoff reveal', 'CTA or reaction'"],
+    "what_they_skip": "What they consistently cut out or abbreviate",
+    "climax_moment": "Their go-to hero moment — what it looks/sounds like and when it appears",
+    "pacing_within_steps": "Where they linger vs. rush — which beats get more screen time and why"
   }},
 
   "visual_identity": {{
     "shot_composition": "How they frame shots — POV, overhead, eye-level, close-up ratio",
     "camera_work": "Handheld, static, dolly moves, etc.",
-    "lighting_style": "What their lighting looks like (natural, warm kitchen, moody, bright studio)",
+    "lighting_style": "What their lighting looks like (natural, warm, moody, bright studio, etc.)",
     "transition_style": "How they cut between shots (hard cut, match cut, whip pan, etc.)"
   }},
 
   "pacing_pattern": {{
     "description": "How pacing flows across the reel",
     "opening_cuts": "Hook pacing — fast or slow, how many cuts in first 3s",
-    "body_rhythm": "Pacing in the cooking body",
+    "body_rhythm": "Pacing through the main content section",
     "closing_style": "How they end",
     "target_avg_cut_s": <float>,
     "target_variation": <float 0-1>,
     "beat_sync_strength": <float 0-1>
-  }},
-
-  "color_recipe": {{
-    "description": "Their color philosophy — warm kitchen glow? Clean bright studio? Moody dark?",
-    "grade_style": "<vibrant_warm|vibrant_cool|desaturated_moody|faded_film|bright_airy|dark_moody|high_contrast_punchy|golden_warm|cool_teal|natural_balanced>",
-    "eq_brightness": <float -0.5 to 0.5>,
-    "eq_contrast": <float 0.5 to 3.0>,
-    "eq_saturation": <float 0.0 to 3.0>,
-    "eq_r_gain": <float 0.5 to 2.0>,
-    "eq_b_gain": <float 0.5 to 2.0>,
-    "consistent_across_reels": <true/false>
   }},
 
   "text_recipe": {{
@@ -168,7 +158,7 @@ Respond with a JSON object (raw JSON, no markdown):
     "description": "Full reel structure start to finish",
     "hook_duration_s": <float>,
     "hook_style": "What the hook looks/feels like",
-    "body_structure": "How the cooking middle section is structured",
+    "body_structure": "How the main content section is structured",
     "outro_style": "How they close",
     "target_total_duration_s": <float>
   }},

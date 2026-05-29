@@ -74,9 +74,17 @@ export interface StyleProfile {
   synthesis: {
     style_name?: string;
     vibe?: string;
+    creator_niche?: string;
     content_type?: string;
     creator_archetype?: string;
     hook_formula?: string;
+    content_narrative?: {
+      description?: string;
+      sequence?: string[];
+      what_they_skip?: string;
+      climax_moment?: string;
+      pacing_within_steps?: string;
+    };
     cooking_narrative?: {
       description?: string;
       sequence?: string[];
