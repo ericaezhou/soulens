@@ -1,7 +1,7 @@
 "use client";
 import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles, RotateCcw } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import ProfileConnect from "@/components/ProfileConnect";
 import ProfileProgress from "@/components/ProfileProgress";
 import StyleProfileCard from "@/components/StyleProfileCard";
@@ -95,12 +95,9 @@ export default function Home() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "var(--bg)" }}>
       <nav className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)]">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center gradient-accent">
-            <Sparkles size={13} className="text-white" />
-          </div>
-          <span className="font-semibold text-sm tracking-tight">Soulens</span>
-        </div>
+        <span className="text-xl gradient-text" style={{ fontFamily: "var(--font-brand)" }}>
+          Soulens
+        </span>
 
         <div className="flex items-center gap-4">
           {phase !== "connect" && (
@@ -125,7 +122,7 @@ export default function Home() {
         </div>
       </nav>
 
-      <main className="flex-1 flex items-start justify-center px-4 py-10 md:py-16">
+      <main className="flex-1 flex items-start justify-center px-4 py-6 md:py-8">
         <div className="w-full">
           {phase === "connect" && (
             <ProfileConnect onSubmit={handleConnect} loading={connecting} error={error} />

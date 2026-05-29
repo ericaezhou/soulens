@@ -66,7 +66,7 @@ export default function StyleProfileCard({ profile, onStartEdit }: Props) {
   const climaxValue = (narrative as any)?.climax_moment || (narrative as any)?.money_shot;
 
   return (
-    <div className="w-full max-w-3xl mx-auto space-y-3">
+    <div className="w-full max-w-3xl mx-auto space-y-2.5">
 
       {/* Hero */}
       <div className="glass rounded-2xl p-8 glow relative overflow-hidden">
@@ -75,19 +75,18 @@ export default function StyleProfileCard({ profile, onStartEdit }: Props) {
 
         <div className="relative text-center space-y-4">
           <div className="flex items-center justify-center gap-2">
-            <Sparkles size={11} className="text-[var(--accent)]" />
-            <span className="text-[10px] font-medium uppercase tracking-widest text-[var(--text-muted)]">
+            <span className="text-[15px] font-lg tracking-widest text-[var(--text-muted)]">
               Style Profile · @{profile.username}
             </span>
           </div>
 
-          <h1 className="text-4xl md:text-5xl font-bold gradient-text leading-tight"
+          <h1 className="text-4xl md:text-4xl font-bold gradient-text leading-tight"
             style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}>
             {s.style_name || "Your Style"}
           </h1>
 
           {s.vibe && (
-            <p className="text-base md:text-lg leading-relaxed max-w-xl mx-auto"
+            <p className="text-base md:text-medium leading-relaxed max-w-xl mx-auto"
               style={{ color: "var(--text)", fontStyle: "italic", opacity: 0.85 }}>
               &ldquo;{s.vibe}&rdquo;
             </p>

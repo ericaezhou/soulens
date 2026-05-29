@@ -95,10 +95,12 @@ export default function ProfileConnect({ onSubmit, loading, error }: Props) {
     <div className="w-full max-w-2xl mx-auto space-y-6">
       <div className="text-center space-y-2">
         <h1 className="text-4xl md:text-5xl font-bold tracking-tight leading-tight" style={{ fontFamily: "var(--font-serif)" }}>
-          <span style={{ background: "linear-gradient(135deg, var(--accent), var(--accent-2))", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
+          <span style={{ fontStyle: "italic", background: "linear-gradient(135deg, var(--accent), var(--accent-2))", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
             Your style,
           </span>{" "}
-          <em style={{ fontStyle: "italic", color: "var(--text)" }}>Soulens edit.</em>
+          <em style={{ fontStyle: "italic", color: "var(--text)" }}>
+            <span style={{ fontFamily: "var(--font-brand)", fontStyle: "normal", fontWeight: 400 }}>Soulens</span>{" "}edit.
+          </em>
         </h1>
         <p className="text-[var(--text-muted)] max-w-md mx-auto text-sm leading-relaxed">
           {savedProfiles.length > 0
