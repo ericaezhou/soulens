@@ -21,7 +21,7 @@ function slugify(name: string): string {
 }
 
 function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso + "Z").getTime();
+  const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
   if (m < 1) return "just now";
   if (m < 60) return `${m}m ago`;
