@@ -58,10 +58,22 @@ export default function Home() {
     setConnecting(true);
     setError("");
     try {
-      const { username: uname } = await connectProfile(url, reelUrls, displayName);
+      const res = await connectProfile(url, reelUrls, displayName);
+      const uname = res.username;
       setUsername(uname);
-      setPhase("building");
       setConnecting(false);
+
+      // Already completed — go straight to profile view without a "building" flash
+      if (res.status === "completed") {
+        const state = await getProfileState(uname);
+        if (state.profile) {
+          setProfile(state.profile);
+          setPhase("profile");
+          return;
+        }
+      }
+
+      setPhase("building");
       startPolling(uname);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to connect");

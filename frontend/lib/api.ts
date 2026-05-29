@@ -106,7 +106,7 @@ export interface StyleProfile {
   };
 }
 
-export async function connectProfile(instagramUrl: string, reelUrls?: string[], displayName?: string): Promise<{ username: string }> {
+export async function connectProfile(instagramUrl: string, reelUrls?: string[], displayName?: string): Promise<{ username: string; status: string }> {
   const res = await fetch(`${API}/profile/connect`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
