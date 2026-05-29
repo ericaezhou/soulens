@@ -190,15 +190,3 @@ def build_profile(
     }
 
 
-def save_profile(username: str, profile: dict) -> Path:
-    path = PROFILES_DIR / username / "profile.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(profile, indent=2))
-    return path
-
-
-def load_profile(username: str) -> dict | None:
-    path = PROFILES_DIR / username / "profile.json"
-    if not path.exists():
-        return None
-    return json.loads(path.read_text())

@@ -21,11 +21,11 @@ export interface SavedProfile {
 }
 
 export async function deleteProfile(slug: string): Promise<void> {
-  await fetch(`${API}/profile/${slug}`, { method: "DELETE" });
+  await fetch(`${API}/profile/${slug}`, { method: "DELETE", headers: await authHeaders() });
 }
 
 export async function getProfiles(): Promise<SavedProfile[]> {
-  const res = await fetch(`${API}/profile`);
+  const res = await fetch(`${API}/profile`, { headers: await authHeaders() });
   if (!res.ok) return [];
   return res.json();
 }
@@ -133,7 +133,7 @@ export async function triggerSynthesis(username: string): Promise<{ username: st
 }
 
 export async function getProfileState(username: string): Promise<ProfileState> {
-  const res = await fetch(`${API}/profile/${username}`);
+  const res = await fetch(`${API}/profile/${username}`, { headers: await authHeaders() });
   if (!res.ok) throw new Error("Profile not found");
   return res.json();
 }

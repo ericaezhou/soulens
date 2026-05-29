@@ -4,9 +4,6 @@ from fastapi.staticfiles import StaticFiles
 from app.routes.profile import router as profile_router
 from app.routes.edit import router as edit_router
 from app.config import UPLOAD_DIR
-from app.db import init_db
-
-init_db()
 
 app = FastAPI(
     title="Soulens API",
