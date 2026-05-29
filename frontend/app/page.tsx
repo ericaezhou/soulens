@@ -4,13 +4,12 @@ import { useRouter } from "next/navigation";
 import { Sparkles, RotateCcw } from "lucide-react";
 import ProfileConnect from "@/components/ProfileConnect";
 import ProfileProgress from "@/components/ProfileProgress";
-import SynthesisGate from "@/components/SynthesisGate";
 import StyleProfileCard from "@/components/StyleProfileCard";
 import EditPanel from "@/components/EditPanel";
 import { useAuth } from "@/components/AuthProvider";
 import { connectProfile, triggerSynthesis, getProfileState, poll, StyleProfile, ProfileState } from "@/lib/api";
 
-type Phase = "connect" | "building" | "ready_to_synthesize" | "profile" | "editing";
+type Phase = "connect" | "building" | "profile" | "editing";
 
 export default function Home() {
   const { user, loading, signOut } = useAuth();
@@ -29,11 +28,13 @@ export default function Home() {
   const startPolling = useCallback((uname: string) => {
     const stop = poll(
       () => getProfileState(uname),
-      (state) => {
+      async (state) => {
         setProfileState(state);
+
         if (state.status === "awaiting_synthesis") {
-          setPhase("ready_to_synthesize");
-          stop();
+          // Auto-trigger synthesis — no user confirmation needed
+          try { await triggerSynthesis(uname); } catch { /* ignore, keep polling */ }
+          return;
         }
         if (state.status === "completed" && state.profile) {
           setProfile(state.profile);
@@ -63,7 +64,6 @@ export default function Home() {
       setUsername(uname);
       setConnecting(false);
 
-      // Already completed — go straight to profile view without a "building" flash
       if (res.status === "completed") {
         const state = await getProfileState(uname);
         if (state.profile) {
@@ -80,12 +80,6 @@ export default function Home() {
       setConnecting(false);
     }
   }, [startPolling]);
-
-  const handleSynthesize = useCallback(async () => {
-    await triggerSynthesis(username);
-    setPhase("building");
-    startPolling(username);
-  }, [username, startPolling]);
 
   const reset = () => {
     setPhase("connect");
@@ -117,8 +111,6 @@ export default function Home() {
               </button>
             </>
           )}
-
-          {/* User + sign out */}
           <div className="flex items-center gap-3 pl-3 border-l border-[var(--border)]">
             <span className="text-xs text-[var(--text-muted)] hidden sm:block truncate max-w-[160px]">
               {user?.email}
@@ -147,15 +139,6 @@ export default function Home() {
               total={profileState?.total}
               log={profileState?.log}
               activeTasks={profileState?.active_tasks}
-            />
-          )}
-
-          {phase === "ready_to_synthesize" && profileState && (
-            <SynthesisGate
-              username={username}
-              reelsAnalyzed={profileState.reels_analyzed ?? 0}
-              reelsFailed={profileState.reels_failed ?? 0}
-              onConfirm={handleSynthesize}
             />
           )}
 

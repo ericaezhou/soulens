@@ -1,8 +1,9 @@
 "use client";
+import { useMemo } from "react";
 import { ReelLogEntry } from "@/lib/api";
 
 const STEP_LABELS: Record<string, string> = {
-  fetching_urls:      "Finding your latest Reels...",
+  fetching_urls:      "Finding your latest reels...",
   analyzing_reels:    "Analyzing editing style...",
   synthesizing_style: "Building your Style Profile...",
   done:               "Done!",
@@ -39,6 +40,16 @@ export default function ProfileProgress({
   const isSynthesizing = step === "synthesizing_style";
   const activeEntries = Object.entries(activeTasks);
 
+  // Assign stable reel numbers in order of first appearance
+  const reelNumber = useMemo(() => {
+    const map: Record<string, number> = {};
+    let n = 1;
+    [...log.map(e => e.shortcode), ...Object.keys(activeTasks)].forEach(sc => {
+      if (!map[sc]) map[sc] = n++;
+    });
+    return (sc: string) => map[sc] ?? n++;
+  }, [log, activeTasks]);
+
   return (
     <div className="w-full max-w-lg mx-auto space-y-6">
       <div className="text-center">
@@ -47,7 +58,7 @@ export default function ProfileProgress({
       </div>
 
       <div className="glass rounded-2xl p-6 space-y-5">
-        {/* Progress bar — hidden during synthesis (no trackable sub-steps) */}
+        {/* Progress bar — hidden during synthesis */}
         {!isSynthesizing && (
           <div className="space-y-2">
             <div className="flex justify-between text-xs text-[var(--text-muted)]">
@@ -74,14 +85,14 @@ export default function ProfileProgress({
                   <span className="relative inline-flex rounded-full h-2 w-2"
                     style={{ background: "var(--accent)" }} />
                 </span>
-                <span className="font-mono text-[var(--text-muted)]">{shortcode}</span>
+                <span className="text-[var(--text-muted)]">Reel {reelNumber(shortcode)}</span>
                 <span style={{ color: "var(--text)" }}>{TASK_LABELS[taskStep] ?? taskStep}…</span>
               </div>
             ))}
           </div>
         )}
 
-        {/* Waiting state — no active tasks yet */}
+        {/* Waiting state */}
         {!isSynthesizing && activeEntries.length === 0 && progress === 0 && (
           <div className="flex items-center gap-3 text-xs text-[var(--text-muted)]">
             <span className="relative flex h-2 w-2 shrink-0">
@@ -95,20 +106,20 @@ export default function ProfileProgress({
         {/* Completed log */}
         {log.length > 0 && (
           <div className="space-y-1.5">
-            <p className="text-xs text-[var(--text-muted)] uppercase tracking-wider">Completed</p>
+            <p className="text-xs text-[var(--text-muted)]">Completed</p>
             <div className="space-y-1 max-h-40 overflow-y-auto">
               {[...log].reverse().map((entry, i) => (
-                <div key={i} className="flex items-center gap-2 text-xs font-mono">
+                <div key={i} className="flex items-center gap-2 text-xs">
                   {entry.error ? (
                     <>
                       <span className="text-red-400 shrink-0">✗</span>
-                      <span className="text-[var(--text-muted)] truncate">{entry.shortcode}</span>
+                      <span className="text-[var(--text-muted)]">Reel {reelNumber(entry.shortcode)}</span>
                       <span className="text-red-400 truncate">{entry.error}</span>
                     </>
                   ) : (
                     <>
                       <span className="shrink-0" style={{ color: "var(--accent)" }}>✓</span>
-                      <span className="text-[var(--text)] truncate">{entry.shortcode}</span>
+                      <span className="text-[var(--text)]">Reel {reelNumber(entry.shortcode)}</span>
                       <span className="text-[var(--text-muted)] shrink-0">{entry.duration_s}s</span>
                       <span className="text-[var(--text-muted)] shrink-0">·</span>
                       <span className="text-[var(--text-muted)] shrink-0">{entry.cuts} cuts</span>
