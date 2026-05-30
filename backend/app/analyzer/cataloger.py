@@ -30,13 +30,10 @@ Each SceneEntry returned:
 import re
 import json
 import asyncio
-import anthropic
-import os
 
 from app.analyzer.frames import grab_frame
 from app.analyzer.cache import get_clip_cache_key, load_phase1_cache, save_phase1_cache
-
-_MODEL = "claude-sonnet-4-6"
+from app.llm import get_client, claude_model
 
 # 4 frame positions as fractions of segment duration.
 # Start (5%) anchors start_state. End (88%) anchors end_state — stopping at 88% rather than
@@ -176,12 +173,11 @@ def _catalog_one_clip(group: dict) -> list[dict]:
         ),
     })
 
-    api_key = os.getenv("ANTHROPIC_API_KEY", "")
-    client = anthropic.Anthropic(api_key=api_key)
+    client = get_client()
 
     try:
         response = client.messages.create(
-            model=_MODEL,
+            model=claude_model(),
             max_tokens=2048,
             messages=[{"role": "user", "content": content}],
         )

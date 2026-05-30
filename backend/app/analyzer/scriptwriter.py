@@ -8,11 +8,7 @@ what's on screen rather than reasoning from generic scene timing alone.
 """
 import re
 import json
-import anthropic
-import os
-
-
-_MODEL = "claude-sonnet-4-6"
+from app.llm import get_client, claude_model
 
 
 def generate_script_and_captions(
@@ -29,9 +25,6 @@ def generate_script_and_captions(
     footage_duration: total seconds of the final edit
     footage_topic   : optional topic hint from user
     """
-    api_key = os.getenv("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        return {"error": "No Anthropic API key configured"}
 
     synthesis = style_profile.get("synthesis", {})
     recipe = style_profile.get("edit_recipe", {})
@@ -126,10 +119,10 @@ def generate_script_and_captions(
         "}}"
     ).format(username=username, hook_duration=hook_duration)
 
-    client = anthropic.Anthropic(api_key=api_key)
+    client = get_client()
     try:
         response = client.messages.create(
-            model=_MODEL,
+            model=claude_model(),
             max_tokens=2000,
             messages=[{"role": "user", "content": prompt}],
         )

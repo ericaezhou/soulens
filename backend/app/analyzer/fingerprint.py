@@ -3,8 +3,7 @@ Synthesizes analysis from 20 reels into one Style Profile via Claude.
 The output is machine-actionable — it drives the editor directly.
 """
 import json
-import anthropic
-from app.config import ANTHROPIC_API_KEY
+from app.llm import get_client, claude_model
 
 
 def synthesize_style_profile(username: str, reels: list[dict]) -> dict:
@@ -38,14 +37,7 @@ def synthesize_style_profile(username: str, reels: list[dict]) -> dict:
 
 
 def _call_claude(username: str, reels: list[dict]) -> dict:
-    from dotenv import load_dotenv
-    import os as _os
-    load_dotenv(override=True)
-    api_key = _os.getenv("ANTHROPIC_API_KEY", "") or ANTHROPIC_API_KEY
-    if not api_key:
-        return {"error": "No Anthropic API key configured"}
-
-    client = anthropic.Anthropic(api_key=api_key)
+    client = get_client()
 
     # Build compact measurement summaries
     reels_summary = []
@@ -182,7 +174,7 @@ Respond with a JSON object (raw JSON, no markdown):
 
     try:
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=claude_model(),
             max_tokens=4000,
             messages=[{"role": "user", "content": content}],
         )

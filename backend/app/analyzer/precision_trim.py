@@ -18,12 +18,9 @@ PrecisionCut schema returned per scene:
 """
 import re
 import json
-import anthropic
-import os
 
 from app.analyzer.frames import grab_frame
-
-_MODEL = "claude-sonnet-4-6"
+from app.llm import get_client, claude_model
 BLOCK_SIZE = 3
 CONFIDENCE_THRESHOLD = 0.6
 MIN_CUT_S = 1.5
@@ -168,12 +165,11 @@ def _trim_block(
         ),
     })
 
-    api_key = os.getenv("ANTHROPIC_API_KEY", "")
-    client = anthropic.Anthropic(api_key=api_key)
+    client = get_client()
 
     try:
         response = client.messages.create(
-            model=_MODEL,
+            model=claude_model(),
             max_tokens=1024,
             messages=[{"role": "user", "content": content}],
         )

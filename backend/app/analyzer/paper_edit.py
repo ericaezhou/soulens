@@ -13,10 +13,7 @@ Output schema:
 """
 import re
 import json
-import anthropic
-import os
-
-_MODEL = "claude-sonnet-4-6"
+from app.llm import get_client, claude_model
 
 
 def plan_edit(scenes: list[dict], profile: dict) -> dict:
@@ -79,11 +76,10 @@ def plan_edit(scenes: list[dict], profile: dict) -> dict:
         "}"
     )
 
-    api_key = os.getenv("ANTHROPIC_API_KEY", "")
-    client = anthropic.Anthropic(api_key=api_key)
+    client = get_client()
 
     response = client.messages.create(
-        model=_MODEL,
+        model=claude_model(),
         max_tokens=2048,
         messages=[{"role": "user", "content": prompt}],
     )
