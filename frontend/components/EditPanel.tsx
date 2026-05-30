@@ -1,6 +1,6 @@
 "use client";
 import { useState, useRef, useCallback } from "react";
-import { Upload, Loader2, Download, FileText, Film, Sparkles, X, Trash2, RotateCcw } from "lucide-react";
+import { Upload, Download, FileText, Film, Sparkles, X, Trash2, RotateCcw } from "lucide-react";
 import {
   uploadFootage, startEdit, getEditState, poll,
   proceedEdit, confirmScenes, finalizeEdit,
@@ -197,15 +197,24 @@ export default function EditPanel({ profile }: Props) {
   if (phase === "processing" || phase === "uploading") {
     const stepOrder = ["starting", "rough_cut", "cataloging", "planning_edit", "trimming_cuts", "building_selects", "generating_script", "rendering"];
     const currentIdx = stepOrder.indexOf(step);
-    const completedSteps = stepOrder.slice(0, currentIdx).filter(s => STEP_LABELS[s]);
+    const completedSteps = currentIdx > 0 ? stepOrder.slice(0, currentIdx).filter(s => STEP_LABELS[s]) : [];
 
     return (
       <div className="w-full max-w-lg mx-auto space-y-6">
         <div className="text-center">
           <p className="text-xs text-[var(--text-muted)] uppercase tracking-wider mb-1">
-            Editing in style of @{profile.username}
+            {phase === "uploading" ? "Uploading footage" : "Processing"}
           </p>
-          <h2 className="text-xl font-bold">Creating your edit...</h2>
+          <h2 className="text-xl font-bold">
+            {step === "rough_cut" ? "Rough cut in progress..." :
+             step === "cataloging" ? "Analyzing your clips..." :
+             step === "planning_edit" ? "Planning the edit..." :
+             step === "trimming_cuts" ? "Precision trimming..." :
+             step === "building_selects" ? "Building the final cut..." :
+             step === "generating_script" ? "Writing your script..." :
+             step === "rendering" ? "Exporting video..." :
+             "Getting started..."}
+          </h2>
         </div>
 
         <div className="glass rounded-2xl p-6 space-y-5">
