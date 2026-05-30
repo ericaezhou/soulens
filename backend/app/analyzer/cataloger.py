@@ -64,11 +64,14 @@ _FALLBACK_DEFAULTS = {
 
 
 async def catalog_clips(clip_groups: list[dict]) -> list[dict]:
-    """Describe all candidate segments across clips in parallel. Returns flat SceneEntry list."""
-    results = await asyncio.gather(*[
-        asyncio.to_thread(_catalog_one_clip, group)
-        for group in clip_groups
-    ])
+    """Describe segments with bounded concurrency to prevent memory spikes and API timeouts."""
+    sem = asyncio.Semaphore(2)
+
+    async def _bounded(group: dict) -> list[dict]:
+        async with sem:
+            return await asyncio.to_thread(_catalog_one_clip, group)
+
+    results = await asyncio.gather(*[_bounded(group) for group in clip_groups])
     return [scene for clip_scenes in results for scene in clip_scenes]
 
 
