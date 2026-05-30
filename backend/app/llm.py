@@ -5,7 +5,7 @@ OpenRouter supports the Anthropic Python client via base_url redirect.
 import os
 import anthropic
 
-_OPENROUTER_BASE = "https://openrouter.ai/api/v1"
+_OPENROUTER_BASE = "https://openrouter.ai"
 _MODEL_DIRECT = "claude-sonnet-4-6"
 _MODEL_OPENROUTER = "anthropic/claude-sonnet-4-6"
 
