@@ -19,7 +19,7 @@ WINDOW_S = 0.5           # score in 0.5-second blocks
 MIN_CLIP_S = 1.5         # drop good segments shorter than this
 MAX_CANDIDATE_S = 5.0    # split candidates longer than this into equal sub-segments
 GAP_FILL_WINDOWS = 2     # absorb up to 2 consecutive bad windows (~1s) sandwiched between good footage
-FRAME_SAMPLE = 2         # analyze every Nth frame; optical flow normalized by N to keep same scale
+FRAME_SAMPLE = 4         # analyze every Nth frame; optical flow normalized by N to keep same scale
 
 THRESHOLDS = {
     "min_blur": 40.0,

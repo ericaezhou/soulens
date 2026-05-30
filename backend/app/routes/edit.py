@@ -797,28 +797,20 @@ def _remux_to_mp4(src: Path, job_dir: Path, index: int = 0) -> Path:
 
 
 def _concat_clips(clips: list[Path], job_dir: Path, out_name: str = "footage.mp4") -> Path:
-    # Use filter_complex concat instead of the concat demuxer.
-    # The demuxer copies timestamps as-is, which causes non-monotonic DTS errors when
-    # independently encoded segments have slight timestamp offsets — ffmpeg silently
-    # drops affected segments rather than erroring out.
-    # filter_complex concat resets PTS/DTS per stream so all segments are always included.
+    # Concat demuxer reads clips sequentially (constant memory regardless of clip count).
+    # Full re-encode with libx264 regenerates clean timestamps, avoiding non-monotonic
+    # DTS errors that occur when stream-copying independently-encoded segments.
     out_path = job_dir / out_name
-    n = len(clips)
-    inputs = []
-    for c in clips:
-        inputs += ["-i", str(c)]
-    filter_v = "".join(f"[{i}:v]" for i in range(n))
-    filter_a = "".join(f"[{i}:a]" for i in range(n))
-    filter_complex = f"{filter_v}concat=n={n}:v=1:a=0[outv];{filter_a}concat=n={n}:v=0:a=1[outa]"
+    list_path = job_dir / "concat_list.txt"
+    list_path.write_text("\n".join(f"file '{c}'" for c in clips))
     cmd = [
-        "ffmpeg", *inputs,
-        "-filter_complex", filter_complex,
-        "-map", "[outv]", "-map", "[outa]",
+        "ffmpeg", "-f", "concat", "-safe", "0", "-i", str(list_path),
+        "-fflags", "+genpts",
         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
         "-c:a", "aac", "-b:a", "192k",
         str(out_path), "-y",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if result.returncode != 0:
         raise RuntimeError(f"Concat failed: {result.stderr[-400:]}")
     return out_path
