@@ -8,7 +8,7 @@ what's on screen rather than reasoning from generic scene timing alone.
 """
 import re
 import json
-from app.llm import get_client, claude_model
+from app.llm import create_message
 
 
 def generate_script_and_captions(
@@ -119,14 +119,8 @@ def generate_script_and_captions(
         "}}"
     ).format(username=username, hook_duration=hook_duration)
 
-    client = get_client()
     try:
-        response = client.messages.create(
-            model=claude_model(),
-            max_tokens=2000,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = response.content[0].text.strip()
+        text = create_message([{"type": "text", "text": prompt}], max_tokens=2000).strip()
         text = re.sub(r"```(?:json)?\s*", "", text).strip()
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if not match:

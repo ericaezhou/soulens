@@ -33,7 +33,7 @@ import asyncio
 
 from app.analyzer.frames import grab_frame
 from app.analyzer.cache import get_clip_cache_key, load_phase1_cache, save_phase1_cache
-from app.llm import get_client, claude_model
+from app.llm import create_message
 
 # 4 frame positions as fractions of segment duration.
 # Start (5%) anchors start_state. End (88%) anchors end_state — stopping at 88% rather than
@@ -173,15 +173,8 @@ def _catalog_one_clip(group: dict) -> list[dict]:
         ),
     })
 
-    client = get_client()
-
     try:
-        response = client.messages.create(
-            model=claude_model(),
-            max_tokens=2048,
-            messages=[{"role": "user", "content": content}],
-        )
-        text = response.content[0].text.strip()
+        text = create_message(content, max_tokens=2048).strip()
     except Exception:
         return _minimal_entries(seg_metas)
 

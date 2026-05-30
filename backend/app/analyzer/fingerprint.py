@@ -3,7 +3,7 @@ Synthesizes analysis from 20 reels into one Style Profile via Claude.
 The output is machine-actionable — it drives the editor directly.
 """
 import json
-from app.llm import get_client, claude_model
+from app.llm import create_message
 
 
 def synthesize_style_profile(username: str, reels: list[dict]) -> dict:
@@ -37,8 +37,6 @@ def synthesize_style_profile(username: str, reels: list[dict]) -> dict:
 
 
 def _call_claude(username: str, reels: list[dict]) -> dict:
-    client = get_client()
-
     # Build compact measurement summaries
     reels_summary = []
     for i, r in enumerate(reels):
@@ -173,12 +171,7 @@ Respond with a JSON object (raw JSON, no markdown):
 }}"""})
 
     try:
-        response = client.messages.create(
-            model=claude_model(),
-            max_tokens=4000,
-            messages=[{"role": "user", "content": content}],
-        )
-        raw = response.content[0].text.strip()
+        raw = create_message(content, max_tokens=4000).strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):

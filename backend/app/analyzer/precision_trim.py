@@ -20,7 +20,7 @@ import re
 import json
 
 from app.analyzer.frames import grab_frame
-from app.llm import get_client, claude_model
+from app.llm import create_message
 BLOCK_SIZE = 3
 CONFIDENCE_THRESHOLD = 0.6
 MIN_CUT_S = 1.5
@@ -165,15 +165,8 @@ def _trim_block(
         ),
     })
 
-    client = get_client()
-
     try:
-        response = client.messages.create(
-            model=claude_model(),
-            max_tokens=1024,
-            messages=[{"role": "user", "content": content}],
-        )
-        text = response.content[0].text.strip()
+        text = create_message(content, max_tokens=1024).strip()
     except Exception:
         return [_fallback(s, target_cut_s, "API call failed") for s in scenes]
 
