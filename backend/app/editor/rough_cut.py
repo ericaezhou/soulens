@@ -10,10 +10,13 @@ For multi-clip sessions, call in three steps:
 Single-clip shortcut: run_rough_cut() does all three internally.
 """
 import math
+import shutil
+import tempfile
 import cv2
 import numpy as np
 import subprocess
 import json
+from pathlib import Path
 
 WINDOW_S = 0.5           # score in 0.5-second blocks
 MIN_CLIP_S = 1.5         # drop good segments shorter than this
@@ -39,18 +42,31 @@ def score_clip(video_path: str) -> tuple[list[dict], float]:
     Read every frame, compute per-window metrics (blur, brightness, max motion).
     Returns (windows, duration). No thresholding — keep/reasons not set yet.
     Call compute_global_threshold() across all clips before thresholding.
+
+    Copies the file to /tmp first so OpenCV reads from local container storage
+    instead of network-attached storage, eliminating per-frame network latency.
     """
     duration = _probe_duration(video_path)
     if duration <= 0:
         return [], 0.0
 
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        return [], 0.0
+    tmp_path = None
+    try:
+        suffix = Path(video_path).suffix or ".mp4"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp_path = tmp.name
+        shutil.copy2(video_path, tmp_path)
 
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    frame_scores = _score_all_frames(cap, fps)
-    cap.release()
+        cap = cv2.VideoCapture(tmp_path)
+        if not cap.isOpened():
+            return [], 0.0
+
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        frame_scores = _score_all_frames(cap, fps)
+        cap.release()
+    finally:
+        if tmp_path:
+            Path(tmp_path).unlink(missing_ok=True)
 
     if not frame_scores:
         return [], 0.0
