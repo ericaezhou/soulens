@@ -72,7 +72,8 @@ def plan_edit(scenes: list[dict], profile: dict) -> dict:
         '  "hook_scene_id": "<scene_id>",\n'
         '  "drop": ["<scene_id>", ...],\n'
         '  "duration_hints": {"<scene_id>": "fast|normal|breathe|long", ...},\n'
-        '  "reasoning": "<3-4 sentence plan>"\n'
+        '  "narrative_summary": "<2-3 sentences describing the edit flow in content terms — what the viewer sees, in order. No scene IDs or clip numbers. Example: \'Opens with a dramatic cheese pull tease, moves through the banchan spread and kimbap lift, closes with a face reaction.\'>",\n'
+        '  "reasoning": "<Plain-language explanation of what was kept and what was dropped, and why — reference subjects by name (e.g. \'the kiosk shot\', \'the stirring close-up\'), never by clip or scene ID. 3-5 sentences.>"\n'
         "}"
     )
 

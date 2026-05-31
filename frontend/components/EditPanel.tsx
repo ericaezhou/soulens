@@ -1,6 +1,6 @@
 "use client";
 import { useState, useRef, useCallback } from "react";
-import { Upload, Download, FileText, Film, Sparkles, X, Trash2, RotateCcw } from "lucide-react";
+import { Upload, Download, FileText, Film, Sparkles, X, Trash2, RotateCcw, ChevronDown } from "lucide-react";
 import {
   uploadFootage, startEdit, getEditState, poll,
   proceedEdit, confirmScenes, finalizeEdit,
@@ -267,8 +267,8 @@ export default function EditPanel({ profile }: Props) {
 
         <div className="glass rounded-2xl p-4 space-y-2">
           <div className="flex items-center justify-between mb-1">
-            <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">
-              {stagedFiles.length} clip{stagedFiles.length !== 1 ? "s" : ""} · will be processed in order
+            <p className="text-xs font-semibold text-[var(--text-muted)] tracking-wider">
+              {stagedFiles.length} clip{stagedFiles.length !== 1 ? "s" : ""}
             </p>
             <button onClick={() => { setStagedFiles([]); setPhase("idle"); }}
               className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
@@ -286,17 +286,9 @@ export default function EditPanel({ profile }: Props) {
 
         {error && <div className="glass rounded-xl p-3 text-sm text-red-400 border border-red-500/20">{error}</div>}
 
-        <div className="glass rounded-xl px-4 py-3 text-xs text-[var(--text-muted)] space-y-1">
-          <p className="font-medium text-[var(--text)] mb-1.5">What happens next:</p>
-          <p>① Rough cut — flags shaky & dark moments, you review</p>
-          <p>② Scene catalog + narrative plan — AI describes & orders scenes, you approve</p>
-          <p>③ Precision trim — AI finds the exact in/out point for each cut</p>
-          <p>④ Final cut review — you drop any bad cuts, then render</p>
-        </div>
-
         <button onClick={handleUpload}
           className="btn-primary w-full py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2">
-          <Film size={15} /> Edit {stagedFiles.length} clip{stagedFiles.length !== 1 ? "s" : ""} as @{profile.username}
+          <Film size={15} /> Edit as @{profile.username}
         </button>
 
         <div className="flex justify-center gap-4">
@@ -319,11 +311,13 @@ export default function EditPanel({ profile }: Props) {
 
   return (
     <div className="w-full max-w-lg mx-auto space-y-4">
-      <div className="glass rounded-2xl p-3">
-        <label className="block text-xs text-[var(--text-muted)] mb-1.5">What's this footage about? (optional — helps the script)</label>
-        <input type="text" value={topic} onChange={(e) => setTopic(e.target.value)}
-          placeholder="e.g. morning routine, NYC trip, outfit of the day"
-          className="w-full bg-transparent text-sm outline-none placeholder:text-[var(--text-muted)]" />
+
+      <div className="glass rounded-xl p-3 text-xs text-[var(--text-muted)] space-y-1">
+        <p className="font-medium text-[var(--text)]">What you'll get:</p>
+        <p>• Edited MP4 styled to match @{profile.username}'s aesthetic</p>
+        <p>• FCPXml file → open in iMovie, Final Cut, Premiere, DaVinci</p>
+        <p>• Script: hook + body + CTA written in your voice</p>
+        
       </div>
 
       <div
@@ -364,13 +358,6 @@ export default function EditPanel({ profile }: Props) {
 
       {error && <div className="glass rounded-xl p-3 text-sm text-red-400 border border-red-500/20">{error}</div>}
 
-      <div className="glass rounded-xl p-3 text-xs text-[var(--text-muted)] space-y-1">
-        <p className="font-medium text-[var(--text)]">What you'll get:</p>
-        <p>• Edited MP4 styled to match @{profile.username}'s aesthetic</p>
-        <p>• FCPXml file → open in iMovie, Final Cut, Premiere, DaVinci</p>
-        <p>• Script: hook + body + CTA written in your voice</p>
-        <p>• Instagram caption + hashtags</p>
-      </div>
     </div>
   );
 }
@@ -434,7 +421,7 @@ function RoughCutReview({
         disabled={proceeding}
         className="w-full py-3 rounded-2xl font-medium text-sm gradient-accent-h text-white disabled:opacity-50 transition-opacity"
       >
-        {proceeding ? "Analyzing clips with AI…" : "Looks good — analyze & plan edit →"}
+        {proceeding ? "Analyzing clips with AI…" : "Looks good →"}
       </button>
     </div>
   );
@@ -450,6 +437,7 @@ function PaperEditReview({
 }) {
   const [dropped, setDropped] = useState<Set<string>>(new Set());
   const [confirming, setConfirming] = useState(false);
+  const [showDetail, setShowDetail] = useState(false);
 
   const activeScenes = manifest.scenes.filter(s => !dropped.has(s.scene_id));
   const totalDur = activeScenes.reduce((s, sc) => s + sc.duration_s, 0);
@@ -463,20 +451,40 @@ function PaperEditReview({
 
   return (
     <div className="w-full max-w-lg mx-auto space-y-4">
-      <div className="glass rounded-2xl p-5 space-y-3">
-        <div>
-          <h3 className="text-sm font-semibold">AI narrative plan</h3>
-          <p className="text-xs text-[var(--text-muted)] mt-1 leading-relaxed">
-            {manifest.reasoning}
+      {/* Narrative summary */}
+      <div className="glass rounded-2xl p-5 space-y-2">
+        <h3 className="text-sm font-semibold">Soulens narrative plan</h3>
+        <p className="text-sm leading-relaxed">
+          {manifest.narrative_summary || manifest.reasoning}
+        </p>
+        {manifest.dropped_scene_count > 0 && (
+          <p className="text-xs text-[var(--text-muted)]">
+            {manifest.dropped_scene_count} scene{manifest.dropped_scene_count !== 1 ? "s" : ""} excluded as redundant.
           </p>
-          {manifest.dropped_scene_count > 0 && (
-            <p className="text-[11px] text-[var(--text-muted)] mt-1">
-              AI excluded {manifest.dropped_scene_count} redundant scene{manifest.dropped_scene_count !== 1 ? "s" : ""}.
-            </p>
-          )}
-        </div>
+        )}
+        {/* Detailed reasoning — collapsed by default */}
+        {manifest.reasoning && (
+          <div>
+            <button
+              onClick={() => setShowDetail(o => !o)}
+              className="text-xs flex items-center gap-1 mt-1"
+              style={{ color: "var(--accent)" }}
+            >
+              <ChevronDown size={12} style={{ transform: showDetail ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }} />
+              {showDetail ? "Hide" : "Show"} detailed analysis
+            </button>
+            {showDetail && (
+              <p className="text-xs text-[var(--text-muted)] leading-relaxed mt-2">
+                {manifest.reasoning}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
 
-        <div className="border-t border-[var(--border)] pt-3 space-y-2">
+      <div className="glass rounded-2xl p-5 space-y-3">
+        <p className="text-xs text-[var(--text-muted)]">{activeScenes.length} scenes · {totalDur.toFixed(1)}s — tap ✕ to remove a scene</p>
+        <div className="space-y-2">
           {manifest.scenes.map((scene) => {
             const isDropped = dropped.has(scene.scene_id);
             const isHook = scene.scene_id === manifest.hook_scene_id;
@@ -529,7 +537,7 @@ function PaperEditReview({
       >
         {confirming
           ? "Refining cuts…"
-          : `Looks good — refine cuts with AI → (${activeScenes.length} scenes · ${totalDur.toFixed(1)}s)`}
+          : `Refine cuts with Soulens → (${activeScenes.length} scenes · ${totalDur.toFixed(1)}s)`}
       </button>
     </div>
   );

@@ -184,6 +184,7 @@ export interface SceneCard {
 
 // manifest_v2.json schema — output of Phase 2, manipulated by the Paper Edit Review UI
 export interface ManifestV2 {
+  narrative_summary?: string;
   reasoning: string;
   hook_scene_id: string;
   scenes: SceneCard[];           // ordered, Claude-selected scenes (no clip_path)
