@@ -802,7 +802,7 @@ def _concat_clips(clips: list[Path], job_dir: Path, out_name: str = "footage.mp4
     # DTS errors that occur when stream-copying independently-encoded segments.
     out_path = job_dir / out_name
     list_path = job_dir / "concat_list.txt"
-    list_path.write_text("\n".join(f"file '{c}'" for c in clips))
+    list_path.write_text("\n".join(f"file '{Path(c).absolute()}'" for c in clips))
     cmd = [
         "ffmpeg", "-f", "concat", "-safe", "0", "-i", str(list_path),
         "-fflags", "+genpts",

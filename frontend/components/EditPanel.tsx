@@ -195,66 +195,61 @@ export default function EditPanel({ profile }: Props) {
   }
 
   if (phase === "processing" || phase === "uploading") {
-    const stepOrder = ["starting", "rough_cut", "cataloging", "planning_edit", "trimming_cuts", "building_selects", "generating_script", "rendering"];
+    const EDIT_STEPS = [
+      { key: "rough_cut",         label: "Rough cut, removing obviously bad clips" },
+      { key: "cataloging",        label: "Analyzing what's in each clip" },
+      { key: "planning_edit",     label: "Planning the narrative structure" },
+      { key: "trimming_cuts",     label: "Precision trimming each cut" },
+      { key: "building_selects",  label: "Building the final cut" },
+      { key: "generating_script", label: "Writing your script" },
+      { key: "rendering",         label: "Exporting video" },
+    ];
+    const stepOrder = ["starting", ...EDIT_STEPS.map(s => s.key)];
     const currentIdx = stepOrder.indexOf(step);
-    const completedSteps = currentIdx > 0 ? stepOrder.slice(0, currentIdx).filter(s => STEP_LABELS[s]) : [];
 
     return (
       <div className="w-full max-w-lg mx-auto space-y-6">
         <div className="text-center">
           <p className="text-xs text-[var(--text-muted)] uppercase tracking-wider mb-1">
-            {phase === "uploading" ? "Uploading footage" : "Processing"}
+            Editing in style of @{profile.username}
           </p>
-          <h2 className="text-xl font-bold">
-            {step === "rough_cut" ? "Rough cut in progress..." :
-             step === "cataloging" ? "Analyzing your clips..." :
-             step === "planning_edit" ? "Planning the edit..." :
-             step === "trimming_cuts" ? "Precision trimming..." :
-             step === "building_selects" ? "Building the final cut..." :
-             step === "generating_script" ? "Writing your script..." :
-             step === "rendering" ? "Exporting video..." :
-             "Getting started..."}
-          </h2>
+          <h2 className="text-xl font-bold">Creating your edit...</h2>
         </div>
 
-        <div className="glass rounded-2xl p-6 space-y-5">
-          {/* Progress bar */}
-          <div className="space-y-2">
-            <div className="flex justify-between text-xs text-[var(--text-muted)]">
-              <span>Overall progress</span>
-              <span>{STEP_PROGRESS[step] ?? "5%"}</span>
-            </div>
-            <div className="h-1.5 bg-[var(--surface-2)] rounded-full overflow-hidden">
-              <div className="h-full rounded-full gradient-accent-h transition-all duration-700"
-                style={{ width: STEP_PROGRESS[step] ?? "5%" }} />
-            </div>
-          </div>
+        <div className="glass rounded-2xl p-6">
+          <ol className="space-y-4">
+            {EDIT_STEPS.map(({ key, label }) => {
+              const idx = stepOrder.indexOf(key);
+              const isDone = currentIdx > idx;
+              const isCurrent = currentIdx === idx;
 
-          {/* Current step with pulsing dot */}
-          {step && STEP_LABELS[step] && (
-            <div className="flex items-center gap-3 text-xs">
-              <span className="relative flex h-2 w-2 shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
-                  style={{ background: "var(--accent)" }} />
-                <span className="relative inline-flex rounded-full h-2 w-2"
-                  style={{ background: "var(--accent)" }} />
-              </span>
-              <span style={{ color: "var(--text)" }}>{STEP_LABELS[step]}</span>
-            </div>
-          )}
-
-          {/* Completed steps */}
-          {completedSteps.length > 0 && (
-            <div className="space-y-1.5">
-              <p className="text-xs text-[var(--text-muted)]">Completed</p>
-              {[...completedSteps].reverse().map(s => (
-                <div key={s} className="flex items-center gap-2 text-xs">
-                  <span className="shrink-0" style={{ color: "var(--accent)" }}>✓</span>
-                  <span className="text-[var(--text-muted)]">{STEP_LABELS[s]}</span>
-                </div>
-              ))}
-            </div>
-          )}
+              return (
+                <li key={key} className="flex items-center gap-3">
+                  <div className="shrink-0 w-4 flex justify-center">
+                    {isDone ? (
+                      <span className="text-sm font-semibold" style={{ color: "var(--accent)" }}>✓</span>
+                    ) : isCurrent ? (
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+                          style={{ background: "var(--accent)" }} />
+                        <span className="relative inline-flex rounded-full h-2 w-2"
+                          style={{ background: "var(--accent)" }} />
+                      </span>
+                    ) : (
+                      <span className="text-xs" style={{ color: "var(--text-muted)" }}>○</span>
+                    )}
+                  </div>
+                  <span className="text-sm" style={{
+                    color: isDone ? "var(--text-muted)" : isCurrent ? "var(--text)" : "var(--text-muted)",
+                    textDecoration: isDone ? "line-through" : "none",
+                    opacity: !isDone && !isCurrent ? 0.4 : 1,
+                  }}>
+                    {label}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
         </div>
       </div>
     );
