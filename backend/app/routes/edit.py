@@ -797,15 +797,21 @@ def _remux_to_mp4(src: Path, job_dir: Path, index: int = 0) -> Path:
 
 
 def _concat_clips(clips: list[Path], job_dir: Path, out_name: str = "footage.mp4") -> Path:
-    # Concat demuxer reads clips sequentially (constant memory regardless of clip count).
-    # Full re-encode with libx264 regenerates clean timestamps, avoiding non-monotonic
-    # DTS errors that occur when stream-copying independently-encoded segments.
+    # filter_complex concat resets PTS/DTS per stream — preserves A/V sync across all
+    # segments and prevents video freeze from mismatched clip durations.
+    # Safe for rendering since precision-trimmed clips are short (2-4s each).
     out_path = job_dir / out_name
-    list_path = job_dir / "concat_list.txt"
-    list_path.write_text("\n".join(f"file '{Path(c).absolute()}'" for c in clips))
+    n = len(clips)
+    inputs = []
+    for c in clips:
+        inputs += ["-i", str(Path(c).absolute())]
+    filter_v = "".join(f"[{i}:v]" for i in range(n))
+    filter_a = "".join(f"[{i}:a]" for i in range(n))
+    filter_complex = f"{filter_v}concat=n={n}:v=1:a=0[outv];{filter_a}concat=n={n}:v=0:a=1[outa]"
     cmd = [
-        "ffmpeg", "-f", "concat", "-safe", "0", "-i", str(list_path),
-        "-fflags", "+genpts",
+        "ffmpeg", *inputs,
+        "-filter_complex", filter_complex,
+        "-map", "[outv]", "-map", "[outa]",
         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
         "-c:a", "aac", "-b:a", "192k",
         str(out_path), "-y",
