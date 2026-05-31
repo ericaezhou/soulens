@@ -824,7 +824,8 @@ def _download_file(job_id: str, path_key: str, media_type: str, filename: str):
     url_key = path_key.replace("_path", "_url")
     public_url = result.get(url_key)
     if public_url:
-        return RedirectResponse(public_url)
+        download_url = public_url if "?" in public_url else f"{public_url}?download="
+        return RedirectResponse(download_url)
 
     # Fall back to local file (dev, no Supabase configured)
     file_path = result.get(path_key)
