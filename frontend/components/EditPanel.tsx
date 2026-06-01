@@ -483,7 +483,14 @@ function PaperEditReview({
       </div>
 
       <div className="glass rounded-2xl p-5 space-y-3">
-        <p className="text-xs text-[var(--text-muted)]">{activeScenes.length} scenes · {totalDur.toFixed(1)}s — tap ✕ to remove a scene</p>
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-[var(--text-muted)]">{activeScenes.length} scenes · {totalDur.toFixed(1)}s</p>
+          <div className="flex items-center gap-2.5 text-[10px] text-[var(--text-muted)]">
+            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />high energy</span>
+            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-yellow-400 inline-block" />medium</span>
+            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[var(--text-muted)] inline-block" />low</span>
+          </div>
+        </div>
         <div className="space-y-2">
           {manifest.scenes.map((scene) => {
             const isDropped = dropped.has(scene.scene_id);
@@ -537,7 +544,7 @@ function PaperEditReview({
       >
         {confirming
           ? "Refining cuts…"
-          : `Refine cuts with Soulens → (${activeScenes.length} scenes · ${totalDur.toFixed(1)}s)`}
+          : `Good narrative! Now refine cuts →`}
       </button>
     </div>
   );
