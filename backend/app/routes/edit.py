@@ -224,7 +224,13 @@ async def replan_edit(job_id: str, body: ReplanRequest, user: dict = Depends(req
     scenes = json.loads(catalog_path.read_text())["scenes"]
     manifest_scenes = json.loads(manifest_scenes_path.read_text())
 
-    paper_edit = await asyncio.to_thread(plan_edit, scenes, profile, body.feedback)
+    # Pass current manifest so Claude makes targeted incremental changes, not a full restart
+    current_manifest = None
+    manifest_path = edit_dir / "manifest_v2.json"
+    if manifest_path.exists():
+        current_manifest = json.loads(manifest_path.read_text())
+
+    paper_edit = await asyncio.to_thread(plan_edit, scenes, profile, body.feedback, current_manifest)
 
     hook_id: str = paper_edit.get("hook_scene_id", "")
     dropped_ids: set[str] = set(paper_edit.get("drop", []))
@@ -342,14 +348,15 @@ async def _run_rough_cut(
             candidates, _, summary = build_clip_candidates(windows, duration_clip, global_threshold)
 
             thumb_url = None
-            if candidates:
-                mid_cand = candidates[0]
-                thumb_t = mid_cand["start_time"] + min(1.0, mid_cand["duration"] * 0.25)
-                thumb_b64 = await asyncio.to_thread(grab_frame, clip_path, thumb_t)
-                if thumb_b64:
-                    thumb_path = edit_dir / f"thumb_{i}.jpg"
-                    thumb_path.write_bytes(base64.b64decode(thumb_b64))
-                    thumb_url = f"/uploads/{job_id}/thumb_{i}.jpg"
+            thumb_t = (
+                candidates[0]["start_time"] + min(1.0, candidates[0]["duration"] * 0.25)
+                if candidates else duration_clip / 2
+            )
+            thumb_b64 = await asyncio.to_thread(grab_frame, clip_path, thumb_t)
+            if thumb_b64:
+                thumb_path = edit_dir / f"thumb_{i}.jpg"
+                thumb_path.write_bytes(base64.b64decode(thumb_b64))
+                thumb_url = f"/uploads/{job_id}/thumb_{i}.jpg"
 
             clip_summaries.append({
                 "clip_index": i, "clip_name": Path(clip_path).name,

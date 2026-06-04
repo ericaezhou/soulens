@@ -212,9 +212,6 @@ export default function EditPanel({ profile }: Props) {
     return (
       <div className="w-full max-w-lg mx-auto space-y-6">
         <div className="text-center">
-          <p className="text-xs text-[var(--text-muted)] uppercase tracking-wider mb-1">
-            Editing in style of @{profile.username}
-          </p>
           <h2 className="text-xl font-bold">Creating your edit...</h2>
         </div>
 
@@ -232,10 +229,8 @@ export default function EditPanel({ profile }: Props) {
                       <span className="text-sm font-semibold" style={{ color: "var(--accent)" }}>✓</span>
                     ) : isCurrent ? (
                       <span className="relative flex h-2 w-2">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
-                          style={{ background: "var(--accent)" }} />
-                        <span className="relative inline-flex rounded-full h-2 w-2"
-                          style={{ background: "var(--accent)" }} />
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60 gradient-accent" />
+                        <span className="relative inline-flex rounded-full h-2 w-2 gradient-accent" />
                       </span>
                     ) : (
                       <span className="text-xs" style={{ color: "var(--text-muted)" }}>○</span>
@@ -512,14 +507,14 @@ function PaperEditReview({
 
         {/* Feedback input */}
         <div className="space-y-2 pt-1">
-          <p className="text-xs text-[var(--text-muted)]">Adjust the scene selection or narrative structure:</p>
+          <p className="text-xs text-[var(--text-muted)]">Give Soulens a creative direction to restructure the narrative:</p>
           <div className="flex gap-2">
             <input
               type="text"
               value={feedback}
               onChange={e => setFeedback(e.target.value)}
               onKeyDown={e => e.key === "Enter" && handleReplan()}
-              placeholder="e.g. 'remove the kiosk shot', 'more food close-ups', 'start with the reaction'"
+              placeholder="e.g. start with the eating scene"
               className="flex-1 glass rounded-xl px-3 py-2 text-xs bg-transparent outline-none placeholder:text-[var(--text-muted)]"
               disabled={replanning}
             />

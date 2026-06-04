@@ -16,7 +16,7 @@ import json
 from app.llm import create_message
 
 
-def plan_edit(scenes: list[dict], profile: dict, feedback: str = "") -> dict:
+def plan_edit(scenes: list[dict], profile: dict, feedback: str = "", current_selection: dict | None = None) -> dict:
     username = profile.get("username", "this creator")
     synthesis = profile.get("synthesis", {})
     total_dur = sum(s["duration_s"] for s in scenes)
@@ -25,10 +25,25 @@ def plan_edit(scenes: list[dict], profile: dict, feedback: str = "") -> dict:
 
     any_face = any(s.get("face_visible", False) for s in scenes)
 
-    feedback_block = (
-        f"CREATOR DIRECTION (highest priority): \"{feedback.strip()}\"\n"
-        f"Apply this when selecting scenes — it overrides general style guidelines where they conflict.\n\n"
-    ) if feedback.strip() else ""
+    feedback_block = ""
+    if feedback.strip():
+        current_block = ""
+        if current_selection:
+            kept_ids = [s["scene_id"] for s in current_selection.get("scenes", [])
+                        if not s.get("scene_id", "").endswith("_hook")]
+            hook_id = current_selection.get("hook_scene_id", "")
+            current_block = (
+                f"CURRENT SELECTION:\n"
+                f"  Hook: {hook_id}\n"
+                f"  Kept scenes (in order): {', '.join(kept_ids)}\n\n"
+            )
+        feedback_block = (
+            current_block
+            + f"CREATOR FEEDBACK: \"{feedback.strip()}\"\n"
+            f"Adjust the current selection based on this feedback. "
+            f"Only change what is necessary to satisfy the feedback — keep everything else the same. "
+            f"Do not drop scenes that were not mentioned in the feedback.\n\n"
+        )
 
     prompt = (
         feedback_block
