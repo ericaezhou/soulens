@@ -316,6 +316,12 @@ export async function finalizeEdit(jobId: string, drop: number[]): Promise<void>
   }
 }
 
+export async function getServerStartTime(): Promise<number> {
+  const res = await fetch(`${API}/health`);
+  const data = await res.json();
+  return (data.started_at ?? 0) * 1000; // convert to ms
+}
+
 export function mediaUrl(path: string) { return `${API}${path}`; }
 export function videoDownloadUrl(jobId: string) { return `${API}/edit/download/${jobId}/video`; }
 export function fcpxmlDownloadUrl(jobId: string) { return `${API}/edit/download/${jobId}/fcpxml`; }

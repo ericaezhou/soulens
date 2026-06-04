@@ -3,7 +3,7 @@ import { useState, useRef, useCallback } from "react";
 import { Upload, Download, FileText, Film, Sparkles, X, Trash2, RotateCcw, ChevronDown } from "lucide-react";
 import {
   uploadFootage, startEdit, getEditState, poll,
-  proceedEdit, confirmScenes, finalizeEdit, replanEdit,
+  proceedEdit, confirmScenes, finalizeEdit, replanEdit, getServerStartTime,
   mediaUrl, videoDownloadUrl, fcpxmlDownloadUrl, scriptDownloadUrl,
   EditState, RoughCutSummary, ManifestV2, DetailedCut, StyleProfile, SceneCard,
 } from "@/lib/api";
@@ -125,7 +125,21 @@ export default function EditPanel({ profile }: Props) {
       setPhase("processing"); setStep("starting");
       const { job_id: editId } = await startEdit(profile.username, footageId, topic, false);
       setEditJobId(editId);
+      const jobStartedAt = Date.now();
       startPolling(editId);
+
+      // Watchdog: check every 30s if server restarted (OOM crash detection)
+      const watchdog = setInterval(async () => {
+        try {
+          const serverStartMs = await getServerStartTime();
+          if (serverStartMs > jobStartedAt) {
+            clearInterval(watchdog);
+            setError("The server restarted mid-job — this usually means it ran out of memory. Try fewer or shorter clips.");
+            setPhase("error");
+          }
+        } catch { /* ignore health check failures */ }
+      }, 30000);
+
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
       setPhase("error");

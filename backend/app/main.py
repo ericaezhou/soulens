@@ -1,4 +1,7 @@
+import time
 from fastapi import FastAPI
+
+_SERVER_START = int(time.time())
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.routes.profile import router as profile_router
@@ -31,4 +34,4 @@ app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "2.0.0"}
+    return {"status": "ok", "version": "2.0.0", "started_at": _SERVER_START}
