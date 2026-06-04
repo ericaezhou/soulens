@@ -147,7 +147,7 @@ export default function Home() {
             <div className="w-full max-w-3xl mx-auto space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs text-[var(--text-muted)] uppercase tracking-wider">Editing in style of @{username}</p>
+                  <p className="text-sm text-[var(--text-muted)]">Editing in style of @{username}</p>
                   <p className="text-sm font-semibold mt-0.5">{profile.synthesis.style_name}</p>
                 </div>
                 <button onClick={() => setPhase("profile")} className="text-xs text-[var(--text-muted)] hover:text-[var(--text)]">

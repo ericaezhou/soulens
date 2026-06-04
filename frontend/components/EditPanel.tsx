@@ -778,7 +778,7 @@ function EditResult({ result, jobId, onReset }: { result: NonNullable<EditState[
         <div>
           <p className="text-lg font-bold">Your edit is ready</p>
           <p className="text-sm text-[var(--text-muted)] mt-1">
-            {result.cuts_applied} cuts · {result.output_duration_s}s · {result.grade_style?.replace(/_/g, " ")}
+            {result.cuts_applied} cuts · {result.output_duration_s}s
           </p>
         </div>
 

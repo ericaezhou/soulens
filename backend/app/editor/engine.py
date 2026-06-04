@@ -15,7 +15,6 @@ def apply_style(
     style_profile: dict,
     output_dir: Path,
     candidate_clips: list[dict] | None = None,
-    apply_color: bool = True,
 ) -> dict:
     recipe = style_profile.get("edit_recipe", {})
 
@@ -42,10 +41,7 @@ def apply_style(
             hook_duration=recipe.get("hook_duration_s", 3.0),
         )
 
-    color = recipe.get("color", {})
-    color_filter = _build_color_filter(color) if apply_color else None
-
-    cmd = _build_ffmpeg_cmd(footage_path, str(mp4_path), cuts, color_filter)
+    cmd = _build_ffmpeg_cmd(footage_path, str(mp4_path), cuts)
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if result.returncode != 0:
         raise RuntimeError(f"FFmpeg error: {result.stderr[-800:]}")
@@ -55,7 +51,6 @@ def apply_style(
         "mp4_filename": mp4_path.name,
         "cuts_applied": len(cuts),
         "output_duration_s": round(sum(c["duration"] for c in cuts), 2),
-        "grade_style": recipe.get("grade_style", "natural_balanced") if apply_color else "none",
         "file_size_bytes": mp4_path.stat().st_size if mp4_path.exists() else 0,
     }
 
@@ -152,41 +147,20 @@ def _generate_cuts(
     return cuts
 
 
-def _build_color_filter(color: dict) -> str:
-    brightness = max(-0.5, min(0.5, color.get("brightness", 0)))
-    contrast = max(0.5, min(3.0, color.get("contrast", 1.0)))
-    saturation = max(0.0, min(3.0, color.get("saturation", 1.0)))
-    r_gain = max(0.5, min(2.0, color.get("r_gain", 1.0)))
-    b_gain = max(0.5, min(2.0, color.get("b_gain", 1.0)))
-
-    parts = [f"eq=brightness={brightness:.3f}:contrast={contrast:.3f}:saturation={saturation:.3f}"]
-    if abs(r_gain - 1.0) > 0.02 or abs(b_gain - 1.0) > 0.02:
-        parts.append(f"colorchannelmixer=rr={r_gain:.3f}:bb={b_gain:.3f}")
-    return ",".join(parts)
-
-
 def _build_ffmpeg_cmd(
     input_path: str,
     output_path: str,
     cuts: list[dict],
-    color_filter: str | None,
 ) -> list[str]:
-    vf = f",{color_filter}" if color_filter else ""
-
     if not cuts:
-        base = ["ffmpeg", "-i", input_path]
-        if color_filter:
-            base += ["-vf", color_filter]
-        else:
-            base += ["-c:v", "copy"]
-        return base + ["-c:a", "aac", "-b:a", "192k", output_path, "-y"]
+        return ["ffmpeg", "-i", input_path, "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", output_path, "-y"]
 
     n = len(cuts)
     filter_parts = []
     for i, cut in enumerate(cuts):
         s, dur = cut["start"], cut["duration"]
         filter_parts.append(
-            f"[0:v]trim=start={s:.3f}:duration={dur:.3f},setpts=PTS-STARTPTS{vf}[v{i}];"
+            f"[0:v]trim=start={s:.3f}:duration={dur:.3f},setpts=PTS-STARTPTS[v{i}];"
             f"[0:a]atrim=start={s:.3f}:duration={dur:.3f},asetpts=PTS-STARTPTS[a{i}];"
         )
 

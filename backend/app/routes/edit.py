@@ -16,7 +16,6 @@ from app.analyzer.cataloger import catalog_clips
 from app.analyzer.paper_edit import plan_edit
 from app.analyzer.precision_trim import trim_scenes
 from app.analyzer.frames import grab_frame
-from app.editor.engine import apply_style
 from app.editor.fcpxml import generate_fcpxml
 from app.editor.rough_cut import score_clip, compute_global_threshold, build_clip_candidates
 from app.storage import upload_output
@@ -719,13 +718,30 @@ async def _render_edit(
             caption_plan = script.get("caption_plan") if isinstance(script, dict) else None
 
         _write_state(edit_dir, {"status": "processing", "job_id": job_id, "step": "rendering"})
-        edit_result = await asyncio.to_thread(
-            apply_style, str(selects_path), profile, edit_dir, None, False,
+
+        # Rename selects.mp4 to a UUID-named output file
+        import uuid as _uuid
+        mp4_path = edit_dir / f"edit_{_uuid.uuid4()}.mp4"
+        selects_path.rename(mp4_path)
+
+        # Probe real output duration
+        probe_dur = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", str(mp4_path)],
+            capture_output=True, text=True,
         )
+        output_duration = round(float(probe_dur.stdout.strip()), 1) if probe_dur.returncode == 0 and probe_dur.stdout.strip() else 0.0
+
+        edit_result = {
+            "mp4_path": str(mp4_path),
+            "mp4_filename": mp4_path.name,
+            "cuts_applied": len(segments),
+            "output_duration_s": output_duration,
+            "file_size_bytes": mp4_path.stat().st_size if mp4_path.exists() else 0,
+        }
 
         # FCPXML — references original source clips with per-cut in/out timecodes
         # so the creator can revert, extend, or trim any cut in Final Cut Pro.
-        fcpxml_stem = Path(edit_result["mp4_path"]).stem
+        fcpxml_stem = mp4_path.stem
         fcpxml_path = edit_dir / f"{fcpxml_stem}.fcpxml"
         active_cuts = [cut for i, cut in enumerate(detailed_cuts) if i not in drop]
         await asyncio.to_thread(
@@ -846,10 +862,13 @@ def _build_selects_from_cuts(segments: list[dict], output_dir: Path) -> Path:
         end_s = min(seg["end_s"], clip_dur - 0.1)
         start_s = seg["start_s"]
         dur = max(0.1, end_s - start_s)
-        # Always re-encode with -ss after -i for frame-accurate cuts.
+        # Re-encode with frame-accurate seek. Explicit trim+atrim on both streams
+        # enforces identical video/audio duration, preventing frozen last frames.
         cmd = [
             "ffmpeg", "-i", seg["clip_path"],
             "-ss", f"{start_s:.3f}", "-t", f"{dur:.3f}",
+            "-vf", f"trim=duration={dur:.3f},setpts=PTS-STARTPTS",
+            "-af", f"atrim=duration={dur:.3f},asetpts=PTS-STARTPTS",
             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
             "-c:a", "aac", "-b:a", "192k", str(seg_out), "-y",
         ]
@@ -889,7 +908,6 @@ def _concat_clips(clips: list[Path], job_dir: Path, out_name: str = "footage.mp4
         "ffmpeg", "-f", "concat", "-safe", "0", "-i", str(list_path),
         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
         "-c:a", "aac", "-b:a", "192k",
-        "-shortest",
         str(out_path), "-y",
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)

@@ -222,7 +222,6 @@ export interface EditState {
     fcpxml_filename: string;
     cuts_applied: number;
     output_duration_s: number;
-    grade_style: string;
     script?: ScriptResult;
     rough_cut?: RoughCutSummary;
   };
