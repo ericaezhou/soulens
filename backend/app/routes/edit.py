@@ -857,20 +857,21 @@ def _build_selects_from_cuts(segments: list[dict], output_dir: Path) -> Path:
     for i, seg in enumerate(segments):
         seg_out = output_dir / f"select_{i:03d}.mp4"
         clip_dur = clip_durations.get(seg["clip_path"], 9999.0)
-        # Clamp end_s to (clip_duration - 100ms) to guarantee we never ask ffmpeg
-        # to encode past the last real frame.
-        end_s = min(seg["end_s"], clip_dur - 0.1)
+        end_s = min(seg["end_s"], clip_dur)
         start_s = seg["start_s"]
         dur = max(0.1, end_s - start_s)
-        # Re-encode with frame-accurate seek. Explicit trim+atrim on both streams
-        # enforces identical video/audio duration, preventing frozen last frames.
+        # Fast input seek (-ss before -i), force 30fps constant frame rate (-r 30),
+        # and resample audio to match video timeline (-af aresample=async=1).
+        # This normalizes VFR iPhone video and eliminates frozen last frames.
         cmd = [
-            "ffmpeg", "-i", seg["clip_path"],
-            "-ss", f"{start_s:.3f}", "-t", f"{dur:.3f}",
-            "-vf", f"trim=duration={dur:.3f},setpts=PTS-STARTPTS",
-            "-af", f"atrim=duration={dur:.3f},asetpts=PTS-STARTPTS",
+            "ffmpeg",
+            "-ss", f"{start_s:.3f}", "-i", seg["clip_path"],
+            "-t", f"{dur:.3f}",
             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
-            "-c:a", "aac", "-b:a", "192k", str(seg_out), "-y",
+            "-r", "30",
+            "-c:a", "aac", "-b:a", "192k",
+            "-af", "aresample=async=1",
+            str(seg_out), "-y",
         ]
         subprocess.run(cmd, capture_output=True, text=True)
         if seg_out.exists() and seg_out.stat().st_size > 0:
@@ -898,16 +899,17 @@ def _remux_to_mp4(src: Path, job_dir: Path, index: int = 0) -> Path:
 
 
 def _concat_clips(clips: list[Path], job_dir: Path, out_name: str = "footage.mp4") -> Path:
-    # Concat demuxer: reads clips sequentially (constant memory, no OOM with high-res clips).
-    # Full re-encode regenerates clean timestamps. -shortest cuts at the shorter stream
-    # to prevent frozen last frame when video/audio durations are mismatched.
+    # Concat demuxer with stream copy — segments are already normalized to constant
+    # 30fps with synced A/V, so re-encoding is unnecessary and slow.
+    # -fflags +genpts regenerates presentation timestamps on read for clean joins.
     out_path = job_dir / out_name
     list_path = job_dir / "concat_list.txt"
     list_path.write_text("\n".join(f"file '{Path(c).absolute()}'" for c in clips))
     cmd = [
-        "ffmpeg", "-f", "concat", "-safe", "0", "-i", str(list_path),
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
-        "-c:a", "aac", "-b:a", "192k",
+        "ffmpeg",
+        "-fflags", "+genpts",
+        "-f", "concat", "-safe", "0", "-i", str(list_path),
+        "-c", "copy",
         str(out_path), "-y",
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)

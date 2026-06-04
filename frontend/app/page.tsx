@@ -1,5 +1,40 @@
 "use client";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
+
+function UserAvatar({ user, onSignOut }: { user: { email?: string; user_metadata?: Record<string, string> } | null; onSignOut: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const avatarUrl = user?.user_metadata?.avatar_url;
+  const initial = user?.email?.[0]?.toUpperCase() ?? "?";
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative pl-3 border-l border-[var(--border)]">
+      <button onClick={() => setOpen(o => !o)} className="flex items-center gap-2 rounded-full focus:outline-none">
+        {avatarUrl ? (
+          <img src={avatarUrl} alt="profile" className="w-7 h-7 rounded-full object-cover" referrerPolicy="no-referrer" />
+        ) : (
+          <div className="w-7 h-7 rounded-full gradient-accent flex items-center justify-center text-white text-xs font-semibold">{initial}</div>
+        )}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-9 glass rounded-xl shadow-lg py-1 min-w-[160px] z-50 border border-[var(--border)]">
+          <p className="text-xs text-[var(--text-muted)] px-3 py-2 truncate">{user?.email}</p>
+          <hr style={{ borderColor: "var(--border)" }} />
+          <button onClick={() => { setOpen(false); onSignOut(); }}
+            className="w-full text-left text-xs px-3 py-2 text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 import { useRouter } from "next/navigation";
 import { RotateCcw } from "lucide-react";
 import ProfileConnect from "@/components/ProfileConnect";
@@ -102,23 +137,12 @@ export default function Home() {
         <div className="flex items-center gap-4">
           {phase !== "connect" && (
             <>
-              {username && <span className="text-xs text-[var(--text-muted)]">@{username}</span>}
               <button onClick={reset} className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
                 <RotateCcw size={11} /> Start over
               </button>
             </>
           )}
-          <div className="flex items-center gap-3 pl-3 border-l border-[var(--border)]">
-            <span className="text-xs text-[var(--text-muted)] hidden sm:block truncate max-w-[160px]">
-              {user?.email}
-            </span>
-            <button
-              onClick={signOut}
-              className="text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text)] transition-colors whitespace-nowrap"
-            >
-              Sign out
-            </button>
-          </div>
+          <UserAvatar user={user} onSignOut={signOut} />
         </div>
       </nav>
 
@@ -159,10 +183,6 @@ export default function Home() {
           )}
         </div>
       </main>
-
-      <footer className="text-center py-5 text-xs text-[var(--text-muted)] border-t border-[var(--border)]">
-        Soulens · AI video editing for Instagram creators
-      </footer>
     </div>
   );
 }

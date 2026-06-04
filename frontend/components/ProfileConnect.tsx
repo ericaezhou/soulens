@@ -123,7 +123,7 @@ export default function ProfileConnect({ onSubmit, loading, error }: Props) {
             } : { color: "var(--text-muted)" }}
           >
             {id === "saved" && <BookOpen size={12} />}
-            {id === "handle" ? "Instagram handle" : id === "paste" ? "Paste reel links" : "Saved profiles"}
+            {id === "handle" ? "Instagram Handle" : id === "paste" ? "Paste Reels" : "Saved Profiles"}
           </button>
         ))}
       </div>
@@ -150,7 +150,6 @@ export default function ProfileConnect({ onSubmit, loading, error }: Props) {
               </button>
             </div>
           </div>
-          <p className="text-center text-xs text-[var(--text-muted)] mt-2">Profile must be public · Enter your Instagram handle</p>
         </form>
       )}
 
