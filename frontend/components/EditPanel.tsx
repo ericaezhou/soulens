@@ -455,7 +455,8 @@ function PaperEditReview({
   const [feedback, setFeedback] = useState("");
   const [replanning, setReplanning] = useState(false);
   const [replanError, setReplanError] = useState("");
-  // orderedScenes tracks user reordering — excludes the _hook tease (always stays at front)
+  const [narrativeOutdated, setNarrativeOutdated] = useState(false);
+  // orderedScenes: body scenes only (hook locked at front)
   const [orderedScenes, setOrderedScenes] = useState<typeof manifest.scenes>(
     manifest.scenes.filter(s => !s.scene_id.endsWith("_hook"))
   );
@@ -464,13 +465,28 @@ function PaperEditReview({
   const activeScenes = orderedScenes.filter(s => !dropped.has(s.scene_id));
   const totalDur = activeScenes.reduce((s, sc) => s + sc.duration_s, 0);
 
-
-  const toggle = (scene_id: string) =>
+  const toggle = (scene_id: string) => {
     setDropped(prev => {
       const next = new Set(prev);
       next.has(scene_id) ? next.delete(scene_id) : next.add(scene_id);
       return next;
     });
+    setNarrativeOutdated(true);
+  };
+
+  // Fix bug 2: restore updates local orderedScenes directly (not via parent manifest)
+  const handleRestore = (scene: SceneCard) => {
+    setDropped(prev => { const next = new Set(prev); next.delete(scene.scene_id); return next; });
+    if (!orderedScenes.find(s => s.scene_id === scene.scene_id)) {
+      setOrderedScenes(prev => [...prev, scene]);
+    }
+    onManifestUpdate({
+      ...manifest,
+      dropped_scenes: manifest.dropped_scenes?.filter(s => s.scene_id !== scene.scene_id),
+      dropped_scene_count: Math.max(0, (manifest.dropped_scene_count || 1) - 1),
+    });
+    setNarrativeOutdated(true);
+  };
 
   const handleReplan = async () => {
     if (!feedback.trim() || replanning) return;
@@ -495,11 +511,6 @@ function PaperEditReview({
         <p className="text-sm leading-relaxed">
           {manifest.narrative_summary || manifest.reasoning}
         </p>
-        {manifest.dropped_scene_count > 0 && (
-          <p className="text-xs text-[var(--text-muted)]">
-            {manifest.dropped_scene_count} scene{manifest.dropped_scene_count !== 1 ? "s" : ""} excluded as redundant.
-          </p>
-        )}
         {/* Detailed reasoning — collapsed by default */}
         {manifest.reasoning && (
           <div>
@@ -526,16 +537,37 @@ function PaperEditReview({
           </p>
         )}
 
+        {/* Bug 3: narrative outdated banner */}
+        {narrativeOutdated && (
+          <div className="flex items-center justify-between text-xs rounded-lg px-3 py-2"
+            style={{ background: "rgba(var(--accent-rgb), 0.08)", color: "var(--accent)" }}>
+            <span>Refresh narrative to match your changes</span>
+            <button
+              onClick={async () => {
+                setReplanning(true);
+                try {
+                  const updated = await replanEdit(jobId, "Regenerate the narrative summary and duration hints for the current scene selection.");
+                  onManifestUpdate(updated);
+                  setNarrativeOutdated(false);
+                } catch { /* ignore */ } finally { setReplanning(false); }
+              }}
+              disabled={replanning}
+              className="ml-3 shrink-0 font-medium underline disabled:opacity-50"
+            >
+              {replanning ? "Refreshing…" : "Refresh"}
+            </button>
+          </div>
+        )}
+
         {/* Feedback input */}
         <div className="space-y-2 pt-1">
-          <p className="text-xs text-[var(--text-muted)]">Give Soulens a creative direction to restructure the narrative:</p>
           <div className="flex gap-2">
             <input
               type="text"
               value={feedback}
               onChange={e => setFeedback(e.target.value)}
               onKeyDown={e => e.key === "Enter" && handleReplan()}
-              placeholder="Give narrative direction — e.g. 'more energetic pacing', 'start with a high-energy reaction', 'focus on close-up food moments'"
+              placeholder="e.g. 'more energetic pacing'"
               className="flex-1 glass rounded-xl px-3 py-2 text-xs bg-transparent outline-none placeholder:text-[var(--text-muted)]"
               disabled={replanning}
             />
@@ -549,16 +581,16 @@ function PaperEditReview({
           </div>
           {replanError && <p className="text-xs text-red-400">{replanError}</p>}
         </div>
-      </div>
 
-      <div className="glass rounded-2xl p-5 space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-[var(--text-muted)]">{activeScenes.length} scenes · {totalDur.toFixed(1)}s</p>
-          <div className="flex items-center gap-2.5 text-[10px] text-[var(--text-muted)]">
-            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />high energy</span>
-            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-yellow-400 inline-block" />medium</span>
-            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[var(--text-muted)] inline-block" />low</span>
-          </div>
+        {/* Scene list — merged into same card */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold">{activeScenes.length} scenes · {totalDur.toFixed(1)}s · drag to reorder</p>
+            <div className="flex items-center gap-2.5 text-[10px] text-[var(--text-muted)]">
+              <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />high</span>
+              <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-yellow-400 inline-block" />medium</span>
+              <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[var(--text-muted)] inline-block" />low</span>
+            </div>
         </div>
         <div className="space-y-2">
           {/* Hook tease — locked at front, not reorderable */}
@@ -583,7 +615,7 @@ function PaperEditReview({
           })()}
 
           {/* Body scenes — drag to reorder */}
-          <Reorder.Group axis="y" values={orderedScenes} onReorder={setOrderedScenes} className="space-y-2">
+          <Reorder.Group axis="y" values={orderedScenes} onReorder={(v) => { setOrderedScenes(v); setNarrativeOutdated(true); }} className="space-y-2">
             {orderedScenes.map((scene) => {
               const isDropped = dropped.has(scene.scene_id);
               const energyColor = scene.energy === "high" ? "bg-green-400" : scene.energy === "medium" ? "bg-yellow-400" : "bg-[var(--text-muted)]";
@@ -617,20 +649,13 @@ function PaperEditReview({
           </Reorder.Group>
         </div>
       </div>
+      </div>
 
       {/* Dropped scenes — collapsible restore panel */}
       {manifest.dropped_scenes && manifest.dropped_scenes.length > 0 && (
         <DroppedScenesPanel
           droppedScenes={manifest.dropped_scenes}
-          onRestore={(scene) => {
-            const updated: ManifestV2 = {
-              ...manifest,
-              scenes: [...manifest.scenes, scene],
-              dropped_scenes: manifest.dropped_scenes?.filter(s => s.scene_id !== scene.scene_id),
-              dropped_scene_count: (manifest.dropped_scene_count || 1) - 1,
-            };
-            onManifestUpdate(updated);
-          }}
+          onRestore={handleRestore}
         />
       )}
 
@@ -669,7 +694,7 @@ function DroppedScenesPanel({ droppedScenes, onRestore }: {
         className="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-white/5 transition-colors"
       >
         <span className="text-xs text-[var(--text-muted)]">
-          {droppedScenes.length} scene{droppedScenes.length !== 1 ? "s" : ""} excluded by Soulens — restore any you want back
+          {droppedScenes.length} scene{droppedScenes.length !== 1 ? "s" : ""} dropped by Soulens
         </span>
         <ChevronDown size={13} className="text-[var(--text-muted)] transition-transform duration-200"
           style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)" }} />
@@ -691,7 +716,7 @@ function DroppedScenesPanel({ droppedScenes, onRestore }: {
                     <span className="text-[var(--text-muted)]">· {scene.duration_s.toFixed(1)}s</span>
                     <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${energyColor}`} />
                   </div>
-                  {scene.description && <p className="text-[11px] text-[var(--text-muted)] line-clamp-1 mt-0.5">{scene.description}</p>}
+                  {(scene.subject || scene.description) && <p className="text-[11px] text-[var(--text-muted)] truncate mt-0.5">{scene.subject || scene.description}</p>}
                 </div>
                 <button
                   onClick={() => onRestore(scene)}
