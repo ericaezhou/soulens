@@ -5,7 +5,7 @@ import {
   uploadFootage, startEdit, getEditState, poll,
   proceedEdit, confirmScenes, finalizeEdit, replanEdit,
   mediaUrl, videoDownloadUrl, fcpxmlDownloadUrl, scriptDownloadUrl,
-  EditState, RoughCutSummary, ManifestV2, DetailedCut, StyleProfile,
+  EditState, RoughCutSummary, ManifestV2, DetailedCut, StyleProfile, SceneCard,
 } from "@/lib/api";
 
 interface Props {
@@ -514,7 +514,7 @@ function PaperEditReview({
               value={feedback}
               onChange={e => setFeedback(e.target.value)}
               onKeyDown={e => e.key === "Enter" && handleReplan()}
-              placeholder="e.g. start with the eating scene"
+              placeholder="Give narrative direction — e.g. 'more energetic pacing', 'start with a high-energy reaction', 'focus on close-up food moments'"
               className="flex-1 glass rounded-xl px-3 py-2 text-xs bg-transparent outline-none placeholder:text-[var(--text-muted)]"
               disabled={replanning}
             />
@@ -584,6 +584,22 @@ function PaperEditReview({
         </div>
       </div>
 
+      {/* Dropped scenes — collapsible restore panel */}
+      {manifest.dropped_scenes && manifest.dropped_scenes.length > 0 && (
+        <DroppedScenesPanel
+          droppedScenes={manifest.dropped_scenes}
+          onRestore={(scene) => {
+            const updated: ManifestV2 = {
+              ...manifest,
+              scenes: [...manifest.scenes, scene],
+              dropped_scenes: manifest.dropped_scenes?.filter(s => s.scene_id !== scene.scene_id),
+              dropped_scene_count: (manifest.dropped_scene_count || 1) - 1,
+            };
+            onManifestUpdate(updated);
+          }}
+        />
+      )}
+
       <button
         onClick={async () => {
           setConfirming(true);
@@ -596,6 +612,60 @@ function PaperEditReview({
           ? "Refining cuts…"
           : `Good narrative! Now refine cuts →`}
       </button>
+    </div>
+  );
+}
+
+// ── Dropped scenes panel ──────────────────────────────────────────────────────
+
+function DroppedScenesPanel({ droppedScenes, onRestore }: {
+  droppedScenes: SceneCard[];
+  onRestore: (scene: SceneCard) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="glass rounded-2xl overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-white/5 transition-colors"
+      >
+        <span className="text-xs text-[var(--text-muted)]">
+          {droppedScenes.length} scene{droppedScenes.length !== 1 ? "s" : ""} excluded by Soulens — restore any you want back
+        </span>
+        <ChevronDown size={13} className="text-[var(--text-muted)] transition-transform duration-200"
+          style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)" }} />
+      </button>
+      {open && (
+        <div className="px-5 pb-4 space-y-2 border-t border-[var(--border)] pt-3">
+          {droppedScenes.map(scene => {
+            const energyColor = scene.energy === "high" ? "bg-green-400" : scene.energy === "medium" ? "bg-yellow-400" : "bg-[var(--text-muted)]";
+            return (
+              <div key={scene.scene_id} className="flex items-center gap-2.5 opacity-60">
+                {scene.thumbnail_url ? (
+                  <img src={mediaUrl(scene.thumbnail_url)} className="w-14 h-9 object-cover rounded-lg shrink-0" />
+                ) : (
+                  <div className="w-14 h-9 rounded-lg shrink-0 bg-[var(--surface-2)]" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 text-xs">
+                    <span className="font-medium">Clip {scene.clip_index + 1}</span>
+                    <span className="text-[var(--text-muted)]">· {scene.duration_s.toFixed(1)}s</span>
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${energyColor}`} />
+                  </div>
+                  {scene.description && <p className="text-[11px] text-[var(--text-muted)] line-clamp-1 mt-0.5">{scene.description}</p>}
+                </div>
+                <button
+                  onClick={() => onRestore(scene)}
+                  className="shrink-0 text-[11px] px-2.5 py-1 rounded-lg font-medium"
+                  style={{ background: "rgba(var(--accent-rgb), 0.1)", color: "var(--accent)" }}
+                >
+                  + Restore
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

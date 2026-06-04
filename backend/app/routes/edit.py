@@ -247,11 +247,17 @@ async def replan_edit(job_id: str, body: ReplanRequest, user: dict = Depends(req
     ordered = ([{**hook_scene, "scene_id": f"{hook_id}_hook", "is_hook": True}] + kept) if hook_scene else kept
     ui_scenes = [{k: v for k, v in s.items() if k != "clip_path"} for s in ordered]
 
+    dropped_scenes_ui = [
+        {k: v for k, v in s.items() if k != "clip_path"}
+        for s in manifest_scenes if s["scene_id"] in dropped_ids
+    ]
+
     return {
         "narrative_summary": paper_edit.get("narrative_summary", ""),
         "reasoning": paper_edit.get("reasoning", ""),
         "hook_scene_id": hook_id,
         "scenes": ui_scenes,
+        "dropped_scenes": dropped_scenes_ui,
         "dropped_scene_count": len(dropped_ids),
         "feedback_used": body.feedback.strip(),
     }
@@ -471,9 +477,6 @@ async def _run_phase1_and_phase2(job_id: str, edit_dir: Path):
         # Save catalog.json (backend-only — includes clip_path)
         (edit_dir / "catalog.json").write_text(json.dumps({"scenes": scenes}))
 
-        # Save manifest_scenes.json — all scenes with thumbnail URLs for replan endpoint
-        (edit_dir / "manifest_scenes.json").write_text(json.dumps(manifest_scenes))
-
         # Save manifest_scenes.json — all scenes with thumbnail URLs (used by replan)
         (edit_dir / "manifest_scenes.json").write_text(json.dumps(manifest_scenes))
 
@@ -514,11 +517,17 @@ async def _run_phase1_and_phase2(job_id: str, edit_dir: Path):
             for s in ordered_manifest_scenes
         ]
 
+        dropped_scenes_ui = [
+            {k: v for k, v in s.items() if k != "clip_path"}
+            for s in manifest_scenes if s["scene_id"] in dropped_ids
+        ]
+
         manifest_v2 = {
             "narrative_summary": paper_edit.get("narrative_summary", ""),
             "reasoning": paper_edit.get("reasoning", ""),
             "hook_scene_id": paper_edit.get("hook_scene_id", ""),
             "scenes": ui_scenes,
+            "dropped_scenes": dropped_scenes_ui,
             "dropped_scene_count": len(dropped_ids),
         }
 

@@ -189,6 +189,7 @@ export interface ManifestV2 {
   reasoning: string;
   hook_scene_id: string;
   scenes: SceneCard[];
+  dropped_scenes?: SceneCard[];
   dropped_scene_count: number;
   feedback_used?: string;
 }
