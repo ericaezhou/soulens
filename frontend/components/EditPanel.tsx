@@ -3,7 +3,7 @@ import { useState, useRef, useCallback } from "react";
 import { Upload, Download, FileText, Film, Sparkles, X, Trash2, RotateCcw, ChevronDown } from "lucide-react";
 import {
   uploadFootage, startEdit, getEditState, poll,
-  proceedEdit, confirmScenes, finalizeEdit,
+  proceedEdit, confirmScenes, finalizeEdit, replanEdit,
   mediaUrl, videoDownloadUrl, fcpxmlDownloadUrl, scriptDownloadUrl,
   EditState, RoughCutSummary, ManifestV2, DetailedCut, StyleProfile,
 } from "@/lib/api";
@@ -170,6 +170,8 @@ export default function EditPanel({ profile }: Props) {
     return (
       <PaperEditReview
         manifest={manifestV2}
+        jobId={editJobId}
+        onManifestUpdate={(updated) => setManifestV2(updated)}
         onConfirm={async (sceneIds: string[]) => {
           setPhase("processing");
           setStep("trimming_cuts");
@@ -430,14 +432,19 @@ function RoughCutReview({
 // ── Paper edit review ─────────────────────────────────────────────────────────
 
 function PaperEditReview({
-  manifest, onConfirm,
+  manifest, jobId, onManifestUpdate, onConfirm,
 }: {
   manifest: ManifestV2;
+  jobId: string;
+  onManifestUpdate: (updated: ManifestV2) => void;
   onConfirm: (sceneIds: string[]) => Promise<void>;
 }) {
   const [dropped, setDropped] = useState<Set<string>>(new Set());
   const [confirming, setConfirming] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [replanning, setReplanning] = useState(false);
+  const [replanError, setReplanError] = useState("");
 
   const activeScenes = manifest.scenes.filter(s => !dropped.has(s.scene_id));
   const totalDur = activeScenes.reduce((s, sc) => s + sc.duration_s, 0);
@@ -448,6 +455,21 @@ function PaperEditReview({
       next.has(scene_id) ? next.delete(scene_id) : next.add(scene_id);
       return next;
     });
+
+  const handleReplan = async () => {
+    if (!feedback.trim() || replanning) return;
+    setReplanning(true);
+    setReplanError("");
+    try {
+      const updated = await replanEdit(jobId, feedback);
+      onManifestUpdate(updated);
+      setDropped(new Set()); // reset manual drops on re-plan
+    } catch (e) {
+      setReplanError(e instanceof Error ? e.message : "Re-plan failed");
+    } finally {
+      setReplanning(false);
+    }
+  };
 
   return (
     <div className="w-full max-w-lg mx-auto space-y-4">
@@ -480,6 +502,37 @@ function PaperEditReview({
             )}
           </div>
         )}
+
+        {/* Show what feedback was used for re-plans */}
+        {manifest.feedback_used && (
+          <p className="text-xs italic" style={{ color: "var(--accent)" }}>
+            Re-planned based on: &ldquo;{manifest.feedback_used}&rdquo;
+          </p>
+        )}
+
+        {/* Feedback input */}
+        <div className="space-y-2 pt-1">
+          <p className="text-xs text-[var(--text-muted)]">Adjust the scene selection or narrative structure:</p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={feedback}
+              onChange={e => setFeedback(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleReplan()}
+              placeholder="e.g. 'remove the kiosk shot', 'more food close-ups', 'start with the reaction'"
+              className="flex-1 glass rounded-xl px-3 py-2 text-xs bg-transparent outline-none placeholder:text-[var(--text-muted)]"
+              disabled={replanning}
+            />
+            <button
+              onClick={handleReplan}
+              disabled={!feedback.trim() || replanning}
+              className="btn-primary text-xs px-3 py-2 rounded-xl font-medium disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+            >
+              {replanning ? "Re-planning…" : "Re-plan"}
+            </button>
+          </div>
+          {replanError && <p className="text-xs text-red-400">{replanError}</p>}
+        </div>
       </div>
 
       <div className="glass rounded-2xl p-5 space-y-3">

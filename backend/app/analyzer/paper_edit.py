@@ -16,18 +16,23 @@ import json
 from app.llm import create_message
 
 
-def plan_edit(scenes: list[dict], profile: dict) -> dict:
+def plan_edit(scenes: list[dict], profile: dict, feedback: str = "") -> dict:
     username = profile.get("username", "this creator")
     synthesis = profile.get("synthesis", {})
     total_dur = sum(s["duration_s"] for s in scenes)
     catalog_text = _build_catalog_text(scenes)
     style_text = _build_style_text(synthesis)
 
-    # Check if any scene has a visible face — used to give Claude the right constraint
     any_face = any(s.get("face_visible", False) for s in scenes)
 
+    feedback_block = (
+        f"CREATOR DIRECTION (highest priority): \"{feedback.strip()}\"\n"
+        f"Apply this when selecting scenes — it overrides general style guidelines where they conflict.\n\n"
+    ) if feedback.strip() else ""
+
     prompt = (
-        f"You are selecting clips for an Instagram Reel for @{username}.\n\n"
+        feedback_block
+        + f"You are selecting clips for an Instagram Reel for @{username}.\n\n"
         f"CREATOR STYLE:\n{style_text}\n\n"
         f"SCENE CATALOG ({len(scenes)} scenes, {total_dur:.1f}s total):\n{catalog_text}\n\n"
         "IMPORTANT: The clips are numbered by the order they were filmed. "

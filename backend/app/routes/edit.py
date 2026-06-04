@@ -192,6 +192,65 @@ async def finalize_edit(job_id: str, body: FinalizeRequest, background_tasks: Ba
     return {"status": "processing"}
 
 
+# ── AI Refinement loop ───────────────────────────────────────────────────────
+
+class ReplanRequest(BaseModel):
+    feedback: str = ""
+
+
+@router.post("/replan/{job_id}")
+async def replan_edit(job_id: str, body: ReplanRequest, user: dict = Depends(require_auth)):
+    """Re-run Phase 2 with user feedback. Returns updated manifest without changing job state."""
+    edit_dir = UPLOAD_DIR / job_id
+    catalog_path = edit_dir / "catalog.json"
+    manifest_scenes_path = edit_dir / "manifest_scenes.json"
+
+    if not catalog_path.exists() or not manifest_scenes_path.exists():
+        raise HTTPException(404, "Edit data not found — please start a new edit")
+
+    # No feedback → return current manifest unchanged (no API credits spent)
+    if not body.feedback.strip():
+        manifest_path = edit_dir / "manifest_v2.json"
+        if manifest_path.exists():
+            return json.loads(manifest_path.read_text())
+        raise HTTPException(404, "Manifest not found")
+
+    state = json.loads((edit_dir / "state.json").read_text())
+    config = state.get("_config", {})
+    profile = load_profile_data(user["sub"], config.get("username", ""))
+    if not profile:
+        raise HTTPException(404, "Style profile not found")
+
+    scenes = json.loads(catalog_path.read_text())["scenes"]
+    manifest_scenes = json.loads(manifest_scenes_path.read_text())
+
+    paper_edit = await asyncio.to_thread(plan_edit, scenes, profile, body.feedback)
+
+    hook_id: str = paper_edit.get("hook_scene_id", "")
+    dropped_ids: set[str] = set(paper_edit.get("drop", []))
+
+    def _sort_key(s: dict) -> tuple:
+        try:
+            parts = s["scene_id"].split("_")
+            return (int(parts[1]), int(parts[3]))
+        except (IndexError, ValueError):
+            return (s.get("clip_index", 0), 0)
+
+    kept = sorted([s for s in manifest_scenes if s["scene_id"] not in dropped_ids], key=_sort_key)
+    hook_scene = next((s for s in kept if s["scene_id"] == hook_id), None)
+    ordered = ([{**hook_scene, "scene_id": f"{hook_id}_hook", "is_hook": True}] + kept) if hook_scene else kept
+    ui_scenes = [{k: v for k, v in s.items() if k != "clip_path"} for s in ordered]
+
+    return {
+        "narrative_summary": paper_edit.get("narrative_summary", ""),
+        "reasoning": paper_edit.get("reasoning", ""),
+        "hook_scene_id": hook_id,
+        "scenes": ui_scenes,
+        "dropped_scene_count": len(dropped_ids),
+        "feedback_used": body.feedback.strip(),
+    }
+
+
 # ── Status / download ─────────────────────────────────────────────────────────
 
 @router.get("/status/{job_id}")
@@ -405,6 +464,12 @@ async def _run_phase1_and_phase2(job_id: str, edit_dir: Path):
         # Save catalog.json (backend-only — includes clip_path)
         (edit_dir / "catalog.json").write_text(json.dumps({"scenes": scenes}))
 
+        # Save manifest_scenes.json — all scenes with thumbnail URLs for replan endpoint
+        (edit_dir / "manifest_scenes.json").write_text(json.dumps(manifest_scenes))
+
+        # Save manifest_scenes.json — all scenes with thumbnail URLs (used by replan)
+        (edit_dir / "manifest_scenes.json").write_text(json.dumps(manifest_scenes))
+
         # Phase 2: Paper edit (text-only, no images)
         _write_state(edit_dir, {
             "status": "processing", "job_id": job_id, "step": "planning_edit",
@@ -443,6 +508,7 @@ async def _run_phase1_and_phase2(job_id: str, edit_dir: Path):
         ]
 
         manifest_v2 = {
+            "narrative_summary": paper_edit.get("narrative_summary", ""),
             "reasoning": paper_edit.get("reasoning", ""),
             "hook_scene_id": paper_edit.get("hook_scene_id", ""),
             "scenes": ui_scenes,

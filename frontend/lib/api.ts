@@ -187,8 +187,9 @@ export interface ManifestV2 {
   narrative_summary?: string;
   reasoning: string;
   hook_scene_id: string;
-  scenes: SceneCard[];           // ordered, Claude-selected scenes (no clip_path)
-  dropped_scene_count: number;   // how many scenes Claude excluded
+  scenes: SceneCard[];
+  dropped_scene_count: number;
+  feedback_used?: string;
 }
 
 // Precision cut from Phase 3 — shown in Final Cut Review
@@ -276,6 +277,19 @@ export async function proceedEdit(jobId: string): Promise<void> {
 }
 
 // Sends the user-approved ordered scene list to trigger Phase 3
+export async function replanEdit(jobId: string, feedback: string): Promise<ManifestV2> {
+  const res = await fetch(`${API}/edit/replan/${jobId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ feedback }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to re-plan edit");
+  }
+  return res.json();
+}
+
 export async function confirmScenes(jobId: string, sceneIds: string[]): Promise<void> {
   const res = await fetch(`${API}/edit/confirm_scenes/${jobId}`, {
     method: "POST",
