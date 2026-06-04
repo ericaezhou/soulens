@@ -195,6 +195,7 @@ async def finalize_edit(job_id: str, body: FinalizeRequest, background_tasks: Ba
 
 class ReplanRequest(BaseModel):
     feedback: str = ""
+    current_scene_ids: list[str] | None = None  # current user selection (overrides disk manifest)
 
 
 @router.post("/replan/{job_id}")
@@ -223,11 +224,22 @@ async def replan_edit(job_id: str, body: ReplanRequest, user: dict = Depends(req
     scenes = json.loads(catalog_path.read_text())["scenes"]
     manifest_scenes = json.loads(manifest_scenes_path.read_text())
 
-    # Pass current manifest so Claude makes targeted incremental changes, not a full restart
+    # Build current_selection from user's actual scene IDs if provided,
+    # otherwise fall back to the saved manifest on disk
     current_manifest = None
-    manifest_path = edit_dir / "manifest_v2.json"
-    if manifest_path.exists():
-        current_manifest = json.loads(manifest_path.read_text())
+    if body.current_scene_ids is not None:
+        # Rebuild selection from manifest_scenes filtered by what the user has selected
+        id_set = set(body.current_scene_ids)
+        kept = [s for s in manifest_scenes if s["scene_id"] in id_set and not s["scene_id"].endswith("_hook")]
+        dropped_ids_set = {s["scene_id"] for s in manifest_scenes if s["scene_id"] not in id_set and not s["scene_id"].endswith("_hook")}
+        current_manifest = {
+            "hook_scene_id": next((sid for sid in body.current_scene_ids if sid.endswith("_hook")), "").replace("_hook", ""),
+            "scenes": [{"scene_id": s["scene_id"]} for s in kept],
+        }
+    else:
+        manifest_path = edit_dir / "manifest_v2.json"
+        if manifest_path.exists():
+            current_manifest = json.loads(manifest_path.read_text())
 
     paper_edit = await asyncio.to_thread(plan_edit, scenes, profile, body.feedback, current_manifest)
 

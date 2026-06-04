@@ -279,11 +279,11 @@ export async function proceedEdit(jobId: string): Promise<void> {
 }
 
 // Sends the user-approved ordered scene list to trigger Phase 3
-export async function replanEdit(jobId: string, feedback: string): Promise<ManifestV2> {
+export async function replanEdit(jobId: string, feedback: string, currentSceneIds?: string[]): Promise<ManifestV2> {
   const res = await fetch(`${API}/edit/replan/${jobId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
-    body: JSON.stringify({ feedback }),
+    body: JSON.stringify({ feedback, current_scene_ids: currentSceneIds }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));

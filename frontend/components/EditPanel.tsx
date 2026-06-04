@@ -454,8 +454,8 @@ function PaperEditReview({
   const [showDetail, setShowDetail] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [replanning, setReplanning] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [replanError, setReplanError] = useState("");
-  const [narrativeOutdated, setNarrativeOutdated] = useState(false);
   // orderedScenes: body scenes only (hook locked at front)
   const [orderedScenes, setOrderedScenes] = useState<typeof manifest.scenes>(
     manifest.scenes.filter(s => !s.scene_id.endsWith("_hook"))
@@ -465,13 +465,20 @@ function PaperEditReview({
   const activeScenes = orderedScenes.filter(s => !dropped.has(s.scene_id));
   const totalDur = activeScenes.reduce((s, sc) => s + sc.duration_s, 0);
 
+  // Derived: narrative is outdated if current selection/order differs from original manifest
+  const originalIds = manifest.scenes.map(s => s.scene_id).join(",");
+  const currentIds = [
+    ...(hookScene ? [hookScene.scene_id] : []),
+    ...activeScenes.map(s => s.scene_id),
+  ];
+  const narrativeOutdated = currentIds.join(",") !== originalIds;
+
   const toggle = (scene_id: string) => {
     setDropped(prev => {
       const next = new Set(prev);
       next.has(scene_id) ? next.delete(scene_id) : next.add(scene_id);
       return next;
     });
-    setNarrativeOutdated(true);
   };
 
   // Fix bug 2: restore updates local orderedScenes directly (not via parent manifest)
@@ -485,17 +492,20 @@ function PaperEditReview({
       dropped_scenes: manifest.dropped_scenes?.filter(s => s.scene_id !== scene.scene_id),
       dropped_scene_count: Math.max(0, (manifest.dropped_scene_count || 1) - 1),
     });
-    setNarrativeOutdated(true);
   };
 
   const handleReplan = async () => {
     if (!feedback.trim() || replanning) return;
     setReplanning(true);
     setReplanError("");
+    const currentIds = [
+      ...(hookScene ? [hookScene.scene_id] : []),
+      ...activeScenes.map(s => s.scene_id),
+    ];
     try {
-      const updated = await replanEdit(jobId, feedback);
+      const updated = await replanEdit(jobId, feedback, currentIds);
       onManifestUpdate(updated);
-      setDropped(new Set()); // reset manual drops on re-plan
+      setDropped(new Set());
     } catch (e) {
       setReplanError(e instanceof Error ? e.message : "Re-plan failed");
     } finally {
@@ -544,17 +554,21 @@ function PaperEditReview({
             <span>Refresh narrative to match your changes</span>
             <button
               onClick={async () => {
-                setReplanning(true);
+                setRefreshing(true);
+                const currentIds = [
+                  ...(hookScene ? [hookScene.scene_id] : []),
+                  ...activeScenes.map(s => s.scene_id),
+                ];
                 try {
-                  const updated = await replanEdit(jobId, "Regenerate the narrative summary and duration hints for the current scene selection.");
+                  const updated = await replanEdit(jobId, "Regenerate the narrative summary and duration hints for the current scene selection.", currentIds);
                   onManifestUpdate(updated);
-                  setNarrativeOutdated(false);
-                } catch { /* ignore */ } finally { setReplanning(false); }
+
+                } catch { /* ignore */ } finally { setRefreshing(false); }
               }}
-              disabled={replanning}
+              disabled={refreshing}
               className="ml-3 shrink-0 font-medium underline disabled:opacity-50"
             >
-              {replanning ? "Refreshing…" : "Refresh"}
+              {refreshing ? "Refreshing…" : "Refresh"}
             </button>
           </div>
         )}
@@ -615,7 +629,7 @@ function PaperEditReview({
           })()}
 
           {/* Body scenes — drag to reorder */}
-          <Reorder.Group axis="y" values={orderedScenes} onReorder={(v) => { setOrderedScenes(v); setNarrativeOutdated(true); }} className="space-y-2">
+          <Reorder.Group axis="y" values={orderedScenes} onReorder={setOrderedScenes} className="space-y-2">
             {orderedScenes.map((scene) => {
               const isDropped = dropped.has(scene.scene_id);
               const energyColor = scene.energy === "high" ? "bg-green-400" : scene.energy === "medium" ? "bg-yellow-400" : "bg-[var(--text-muted)]";
