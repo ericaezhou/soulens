@@ -198,7 +198,7 @@ export default function EditPanel({ profile }: Props) {
 
   if (phase === "processing" || phase === "uploading") {
     const EDIT_STEPS = [
-      { key: "rough_cut",         label: "Rough cut, removing obviously bad clips" },
+      { key: "rough_cut",         label: "Rough cut, removing shaky and blurry scenes" },
       { key: "cataloging",        label: "Analyzing what's in each clip" },
       { key: "planning_edit",     label: "Planning the narrative structure" },
       { key: "trimming_cuts",     label: "Precision trimming each cut" },
@@ -212,7 +212,7 @@ export default function EditPanel({ profile }: Props) {
     return (
       <div className="w-full max-w-lg mx-auto space-y-6">
         <div className="text-center">
-          <h2 className="text-xl font-bold">Creating your edit...</h2>
+          <h2 className="text-xl font-bold">Editing in Progress...</h2>
         </div>
 
         <div className="glass rounded-2xl p-6">
@@ -542,7 +542,7 @@ function PaperEditReview({
         <div className="space-y-2">
           {manifest.scenes.map((scene) => {
             const isDropped = dropped.has(scene.scene_id);
-            const isHook = scene.scene_id === manifest.hook_scene_id;
+            const isHook = scene.scene_id.endsWith("_hook") || scene.scene_id === manifest.hook_scene_id + "_hook";
             const energyColor =
               scene.energy === "high" ? "bg-green-400" :
               scene.energy === "medium" ? "bg-yellow-400" :
@@ -570,12 +570,14 @@ function PaperEditReview({
                     <p className="text-[11px] text-[var(--text-muted)] mt-0.5 line-clamp-2">{scene.description}</p>
                   )}
                 </div>
-                <button
-                  onClick={() => toggle(scene.scene_id)}
-                  className={`shrink-0 p-1 rounded transition-colors ${isDropped ? "text-[var(--accent)]" : "text-red-400 hover:text-red-300"}`}
-                >
-                  {isDropped ? <RotateCcw size={13} /> : <Trash2 size={13} />}
-                </button>
+                {!isHook && (
+                  <button
+                    onClick={() => toggle(scene.scene_id)}
+                    className={`shrink-0 p-1 rounded transition-colors ${isDropped ? "text-[var(--accent)]" : "text-red-400 hover:text-red-300"}`}
+                  >
+                    {isDropped ? <RotateCcw size={13} /> : <Trash2 size={13} />}
+                  </button>
+                )}
               </div>
             );
           })}

@@ -180,6 +180,7 @@ export interface SceneCard {
   energy: string;
   description: string;
   thumbnail_url: string | null;
+  is_hook?: boolean;
 }
 
 // manifest_v2.json schema — output of Phase 2, manipulated by the Paper Edit Review UI

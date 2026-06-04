@@ -27,23 +27,27 @@ def plan_edit(scenes: list[dict], profile: dict, feedback: str = "", current_sel
 
     feedback_block = ""
     if feedback.strip():
-        current_block = ""
         if current_selection:
+            all_scene_ids = {s["scene_id"] for s in scenes}
             kept_ids = [s["scene_id"] for s in current_selection.get("scenes", [])
                         if not s.get("scene_id", "").endswith("_hook")]
             hook_id = current_selection.get("hook_scene_id", "")
-            current_block = (
-                f"CURRENT SELECTION:\n"
+            dropped_ids = sorted(all_scene_ids - set(kept_ids))
+            feedback_block = (
+                f"CURRENT PLAN:\n"
                 f"  Hook: {hook_id}\n"
-                f"  Kept scenes (in order): {', '.join(kept_ids)}\n\n"
+                f"  Kept: {', '.join(kept_ids)}\n"
+                f"  Already dropped (keep these dropped unless feedback explicitly asks to restore one): {', '.join(dropped_ids)}\n\n"
+                f"CREATOR FEEDBACK: \"{feedback.strip()}\"\n"
+                f"Make only the specific changes the feedback requests. "
+                f"Keep all currently kept scenes unless feedback explicitly says to remove one. "
+                f"Keep all dropped scenes dropped unless feedback explicitly says to restore one.\n\n"
             )
-        feedback_block = (
-            current_block
-            + f"CREATOR FEEDBACK: \"{feedback.strip()}\"\n"
-            f"Adjust the current selection based on this feedback. "
-            f"Only change what is necessary to satisfy the feedback — keep everything else the same. "
-            f"Do not drop scenes that were not mentioned in the feedback.\n\n"
-        )
+        else:
+            feedback_block = (
+                f"CREATOR DIRECTION: \"{feedback.strip()}\"\n"
+                f"Apply this when deciding which scenes to keep or drop and which scene is the hook.\n\n"
+            )
 
     prompt = (
         feedback_block
