@@ -178,6 +178,7 @@ export interface SceneCard {
   duration_s: number;
   shot_type: string;
   energy: string;
+  subject?: string;
   description: string;
   thumbnail_url: string | null;
   is_hook?: boolean;

@@ -1,5 +1,6 @@
 "use client";
 import { useState, useRef, useCallback } from "react";
+import { Reorder } from "framer-motion";
 import { Upload, Download, FileText, Film, Sparkles, X, Trash2, RotateCcw, ChevronDown } from "lucide-react";
 import {
   uploadFootage, startEdit, getEditState, poll,
@@ -454,9 +455,15 @@ function PaperEditReview({
   const [feedback, setFeedback] = useState("");
   const [replanning, setReplanning] = useState(false);
   const [replanError, setReplanError] = useState("");
+  // orderedScenes tracks user reordering — excludes the _hook tease (always stays at front)
+  const [orderedScenes, setOrderedScenes] = useState<typeof manifest.scenes>(
+    manifest.scenes.filter(s => !s.scene_id.endsWith("_hook"))
+  );
 
-  const activeScenes = manifest.scenes.filter(s => !dropped.has(s.scene_id));
+  const hookScene = manifest.scenes.find(s => s.scene_id.endsWith("_hook"));
+  const activeScenes = orderedScenes.filter(s => !dropped.has(s.scene_id));
   const totalDur = activeScenes.reduce((s, sc) => s + sc.duration_s, 0);
+
 
   const toggle = (scene_id: string) =>
     setDropped(prev => {
@@ -554,47 +561,60 @@ function PaperEditReview({
           </div>
         </div>
         <div className="space-y-2">
-          {manifest.scenes.map((scene) => {
-            const isDropped = dropped.has(scene.scene_id);
-            const isHook = scene.scene_id.endsWith("_hook") || scene.scene_id === manifest.hook_scene_id + "_hook";
-            const energyColor =
-              scene.energy === "high" ? "bg-green-400" :
-              scene.energy === "medium" ? "bg-yellow-400" :
-              "bg-[var(--text-muted)]";
-
+          {/* Hook tease — locked at front, not reorderable */}
+          {hookScene && (() => {
+            const energyColor = hookScene.energy === "high" ? "bg-green-400" : hookScene.energy === "medium" ? "bg-yellow-400" : "bg-[var(--text-muted)]";
             return (
-              <div key={scene.scene_id}
-                className={`flex items-center gap-2.5 glass rounded-xl p-2.5 transition-opacity ${isDropped ? "opacity-35" : ""}`}>
-                {scene.thumbnail_url ? (
-                  <img src={mediaUrl(scene.thumbnail_url)} className="w-16 h-10 object-cover rounded-lg shrink-0" />
-                ) : (
-                  <div className="w-16 h-10 rounded-lg shrink-0 bg-[var(--surface-2)]" />
-                )}
+              <div key={hookScene.scene_id} className="flex items-center gap-2.5 glass rounded-xl p-2.5">
+                {hookScene.thumbnail_url ? <img src={mediaUrl(hookScene.thumbnail_url)} className="w-16 h-10 object-cover rounded-lg shrink-0" /> : <div className="w-16 h-10 rounded-lg shrink-0 bg-[var(--surface-2)]" />}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {isHook && (
-                      <span className="text-[10px] font-bold text-[var(--accent)] uppercase tracking-wider">Hook</span>
-                    )}
-                    <span className="text-xs font-medium">Clip {scene.clip_index + 1}</span>
-                    <span className="text-[11px] text-[var(--text-muted)]">· {scene.duration_s.toFixed(1)}s</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-bold text-[var(--accent)] uppercase tracking-wider">Hook</span>
+                    <span className="text-xs font-medium">Clip {hookScene.clip_index + 1}</span>
+                    <span className="text-[11px] text-[var(--text-muted)]">· {hookScene.duration_s.toFixed(1)}s</span>
                     <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${energyColor}`} />
-                    <span className="text-[10px] text-[var(--text-muted)]">{scene.shot_type}</span>
                   </div>
-                  {scene.description && (
-                    <p className="text-[11px] text-[var(--text-muted)] mt-0.5 line-clamp-2">{scene.description}</p>
+                  {(hookScene.subject || hookScene.description) && (
+                    <p className="text-[11px] text-[var(--text-muted)] mt-0.5 truncate">{hookScene.subject || hookScene.description}</p>
                   )}
                 </div>
-                {!isHook && (
+              </div>
+            );
+          })()}
+
+          {/* Body scenes — drag to reorder */}
+          <Reorder.Group axis="y" values={orderedScenes} onReorder={setOrderedScenes} className="space-y-2">
+            {orderedScenes.map((scene) => {
+              const isDropped = dropped.has(scene.scene_id);
+              const energyColor = scene.energy === "high" ? "bg-green-400" : scene.energy === "medium" ? "bg-yellow-400" : "bg-[var(--text-muted)]";
+              return (
+                <Reorder.Item
+                  key={scene.scene_id}
+                  value={scene}
+                  className={`flex items-center gap-2.5 glass rounded-xl p-2.5 cursor-grab active:cursor-grabbing transition-opacity ${isDropped ? "opacity-35" : ""}`}
+                  style={{ listStyle: "none" }}
+                >
+                  {scene.thumbnail_url ? <img src={mediaUrl(scene.thumbnail_url)} className="w-14 h-9 object-cover rounded-lg shrink-0 pointer-events-none" /> : <div className="w-14 h-9 rounded-lg shrink-0 bg-[var(--surface-2)]" />}
+                  <div className="flex-1 min-w-0 pointer-events-none">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-medium">Clip {scene.clip_index + 1}</span>
+                      <span className="text-[11px] text-[var(--text-muted)]">· {scene.duration_s.toFixed(1)}s</span>
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${energyColor}`} />
+                    </div>
+                    {(scene.subject || scene.description) && (
+                      <p className="text-[11px] text-[var(--text-muted)] mt-0.5 truncate">{scene.subject || scene.description}</p>
+                    )}
+                  </div>
                   <button
                     onClick={() => toggle(scene.scene_id)}
                     className={`shrink-0 p-1 rounded transition-colors ${isDropped ? "text-[var(--accent)]" : "text-red-400 hover:text-red-300"}`}
                   >
                     {isDropped ? <RotateCcw size={13} /> : <Trash2 size={13} />}
                   </button>
-                )}
-              </div>
-            );
-          })}
+                </Reorder.Item>
+              );
+            })}
+          </Reorder.Group>
         </div>
       </div>
 
@@ -617,7 +637,12 @@ function PaperEditReview({
       <button
         onClick={async () => {
           setConfirming(true);
-          await onConfirm(activeScenes.map(s => s.scene_id));
+          // Send hook tease first, then body scenes in user's order (excluding dropped)
+          const ids = [
+            ...(hookScene ? [hookScene.scene_id] : []),
+            ...activeScenes.map(s => s.scene_id),
+          ];
+          await onConfirm(ids);
         }}
         disabled={confirming || activeScenes.length === 0}
         className="w-full py-3 rounded-2xl font-medium text-sm gradient-accent-h text-white disabled:opacity-50 transition-opacity"
