@@ -35,13 +35,17 @@ def generate_script_and_captions(
     text_recipe = synthesis.get("text_recipe", {})
     structure = synthesis.get("structure_template", {})
     verbal = synthesis.get("verbal_style", {})
+    caption_style = synthesis.get("caption_style", {})
 
     beat_lines = _build_beat_sheet(catalog_cuts)
     voice_block = _build_voice_block(verbal, style_profile.get("voice_samples", []))
 
     prompt = (
         f"You are ghostwriting an Instagram Reel script for @{username}. "
-        f"Your job is to sound exactly like them — not like a generic creator.\n\n"
+        f"Your job is to sound exactly like them — copy their actual phrasing, energy, and vocabulary. "
+        f"Do NOT use generic influencer language unless those exact phrases appear in their samples.\n"
+        f"Note: @{username} is the creator's handle, NOT a restaurant or location name. "
+        f"If the topic doesn't specify the location/restaurant name, use a placeholder like [location].\n\n"
         "CREATOR VOICE & STYLE:\n"
         f"  Archetype: {synthesis.get('creator_archetype', '')}\n"
         f"  Vibe: {synthesis.get('vibe', '')}\n"
@@ -61,6 +65,17 @@ def generate_script_and_captions(
 
     if voice_block:
         prompt += f"\nACTUAL TRANSCRIPT SAMPLES (their real words — study the cadence and vocabulary):\n{voice_block}\n"
+
+    if caption_style:
+        prompt += "\nCAPTION WRITING STYLE (how they write, not how they speak):\n"
+        for key in ["length", "tone", "structure", "emoji_usage", "cta_style"]:
+            if caption_style.get(key):
+                prompt += f"  {key.replace('_', ' ').title()}: {caption_style[key]}\n"
+        if caption_style.get("example_lines"):
+            prompt += f"  Example lines from their actual captions:\n"
+            for line in caption_style["example_lines"]:
+                prompt += f"    - {line}\n"
+        prompt += "  IMPORTANT: The reel_caption MUST match this style exactly — copy the structure, tone, and vocabulary from the examples above.\n"
 
     prompt += (
         f"\nEDIT STRUCTURE:\n"

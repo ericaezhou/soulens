@@ -102,6 +102,14 @@ export interface StyleProfile {
     color_recipe?: { description?: string; grade_style?: string };
     text_recipe?: { uses_text?: boolean; description?: string };
     structure_template?: { description?: string; hook_style?: string; target_total_duration_s?: number };
+    caption_style?: {
+      length?: string;
+      tone?: string;
+      structure?: string;
+      emoji_usage?: string;
+      cta_style?: string;
+      example_lines?: string[];
+    };
     signature_moves?: string[];
     avoid?: string[];
     replication_instructions?: string[];
@@ -221,6 +229,8 @@ export interface EditState {
   result?: {
     mp4_filename: string;
     fcpxml_filename: string;
+    zip_url?: string;
+    zip_filename?: string;
     cuts_applied: number;
     output_duration_s: number;
     script?: ScriptResult;

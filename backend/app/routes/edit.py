@@ -3,6 +3,7 @@ import uuid
 import base64
 import asyncio
 import subprocess
+import zipfile
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, BackgroundTasks, Depends
 from app.auth import require_auth
@@ -770,9 +771,21 @@ async def _render_edit(
             srt_path = edit_dir / f"{fcpxml_stem}.srt"
             srt_path.write_text(_build_srt(caption_plan))
 
+        # Build project ZIP (FCPXML + source clips) for DaVinci/FCP import with one-click relink
+        zip_path = edit_dir / f"{fcpxml_stem}_project.zip"
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
+            zf.write(fcpxml_path, fcpxml_path.name)
+            seen_clips: set[str] = set()
+            for cut in active_cuts:
+                cp = cut.get("clip_path", "")
+                if cp and cp not in seen_clips and Path(cp).exists():
+                    zf.write(cp, Path(cp).name)
+                    seen_clips.add(cp)
+
         # Upload final outputs to Supabase Storage (no-op if not configured)
         mp4_url = await asyncio.to_thread(upload_output, Path(edit_result["mp4_path"]), job_id)
         fcpxml_url = await asyncio.to_thread(upload_output, fcpxml_path, job_id)
+        zip_url = await asyncio.to_thread(upload_output, zip_path, job_id)
         srt_url = await asyncio.to_thread(upload_output, srt_path, job_id) if srt_path else None
 
         _write_state(edit_dir, {
@@ -784,6 +797,8 @@ async def _render_edit(
                 "fcpxml_path": str(fcpxml_path),
                 "fcpxml_url": fcpxml_url,
                 "fcpxml_filename": fcpxml_path.name,
+                "zip_url": zip_url,
+                "zip_filename": zip_path.name,
                 "srt_path": str(srt_path) if srt_path else None,
                 "srt_url": srt_url,
                 "srt_filename": srt_path.name if srt_path else None,
@@ -938,7 +953,7 @@ def _download_file(job_id: str, path_key: str, media_type: str, filename: str):
     url_key = path_key.replace("_path", "_url")
     public_url = result.get(url_key)
     if public_url:
-        download_url = public_url if "?" in public_url else f"{public_url}?download="
+        download_url = public_url if "?" in public_url else f"{public_url}?download={filename}"
         return RedirectResponse(download_url)
 
     # Fall back to local file (dev, no Supabase configured)

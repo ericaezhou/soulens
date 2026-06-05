@@ -58,6 +58,7 @@ def _call_claude(username: str, reels: list[dict]) -> dict:
             "motion_style": mo.get("motion_style", ""),
             "has_speech": tr.get("has_speech", False),
             "speech_transcript": tr.get("transcript", "")[:400],
+            "instagram_caption": (r.get("meta", {}).get("description", "") or "")[:300],
         })
 
     # Build multimodal content: measurements + key frames per reel
@@ -65,10 +66,11 @@ def _call_claude(username: str, reels: list[dict]) -> dict:
     content.append({"type": "text", "text": (
         f"You are a professional video editor building a definitive Style Profile for @{username} "
         f"by analyzing {len(reels)} of their Instagram Reels.\n\n"
-        f"You have three inputs per reel:\n"
-        f"1. Precise measurements (cut timing, color values, BPM, motion)\n"
-        f"2. Speech transcript from Whisper audio transcription (what the creator says/captions)\n"
-        f"3. Key frames: hook (first scene cut) + 2 body scenes at cut boundaries + outro (4 total per reel)\n\n"
+        f"You have four inputs per reel:\n"
+        f"1. Precise measurements (cut timing, BPM, motion)\n"
+        f"2. Speech transcript from Whisper audio (what the creator says out loud)\n"
+        f"3. instagram_caption — the actual text caption they wrote for that reel (study this for caption_style)\n"
+        f"4. Key frames: hook (first scene cut) + 2 body scenes at cut boundaries + outro (4 total per reel)\n\n"
         f"MEASUREMENT DATA (includes speech_transcript per reel):\n{json.dumps(reels_summary, indent=2)}"
     )})
 
@@ -160,6 +162,15 @@ Respond with a JSON object (raw JSON, no markdown):
     "closer_pattern": "How they typically close or CTA",
     "vocabulary": "Notes on their word choices — slang, technical terms, filler words, signature phrases",
     "example_phrases": ["3-5 short representative phrases or sentence fragments from their transcripts that capture their voice"]
+  }},
+  "caption_style": {{
+    "length": "<short_1-2_lines|medium_3-5_lines|long_paragraph>",
+    "tone": "How their written caption voice differs from their spoken voice, if at all",
+    "structure": "How they typically structure captions (e.g. 'lead with reaction, then details, then CTA', 'emoji-heavy throughout', etc.)",
+    "emoji_usage": "How and where they use emojis",
+    "hashtag_style": "Their hashtag approach (niche, broad, count, format)",
+    "cta_style": "How they end captions / call to action",
+    "example_lines": ["2-3 representative lines copied verbatim or closely paraphrased from their actual instagram_caption fields — must sound like THEM, not generic influencer"]
   }},
 
   "signature_moves": ["4-6 specific techniques that make their editing unmistakably theirs"],

@@ -48,7 +48,9 @@ def generate_fcpxml(
             continue
         asset_id = f"r{len(seen) + 2}"
         seen[cp] = asset_id
-        src = Path(cp).resolve().as_uri()
+        # Use just the filename — ZIP bundle workflow means clips are co-located with FCPXML.
+        # DaVinci will ask to locate the folder once and auto-relinks all clips.
+        src = f"file://{Path(cp).name}"
         SubElement(resources, "asset",
             id=asset_id,
             name=Path(cp).stem,

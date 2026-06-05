@@ -540,8 +540,8 @@ function PaperEditReview({
           </div>
         )}
 
-        {/* Show what feedback was used for re-plans */}
-        {manifest.feedback_used && (
+        {/* Show feedback used — only when it's a real user direction, not the internal refresh prompt */}
+        {manifest.feedback_used && !manifest.feedback_used.startsWith("Regenerate the narrative") && (
           <p className="text-xs italic" style={{ color: "var(--accent)" }}>
             Re-planned based on: &ldquo;{manifest.feedback_used}&rdquo;
           </p>
@@ -851,10 +851,17 @@ function EditResult({ result, jobId, onReset }: { result: NonNullable<EditState[
             className="btn-primary flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium">
             <Film size={15} /> Download MP4
           </a>
-          <a href={fcpxmlDownloadUrl(jobId)} download
-            className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium glass">
-            <Download size={15} /> FCPXml (iMovie / Final Cut)
-          </a>
+          {result.zip_url ? (
+            <a href={`${result.zip_url}?download=${result.zip_filename}`}
+              className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium glass">
+              <Download size={15} /> DaVinci / Final Cut (ZIP)
+            </a>
+          ) : (
+            <a href={fcpxmlDownloadUrl(jobId)} download
+              className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium glass">
+              <Download size={15} /> FCPXml
+            </a>
+          )}
           <a href={scriptDownloadUrl(jobId)} download
             className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium glass">
             <FileText size={15} /> Script
