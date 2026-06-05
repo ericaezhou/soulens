@@ -2,13 +2,9 @@
 
 **AI video editor that learns a creator's editing style, then edits your raw footage to match, with the human in control at every step.**
 
----
-
 ## The Problem
 
 Replicating a specific creator's Instagram Reel style requires deep expertise: knowing their hook pattern, narrative arc, pacing rhythm, what they always skip, what they linger on, and how they write captions. A professional editor might spend hours studying 20 reels before touching the footage. Soulens does that learning automatically, then keeps the creator's hands on the wheel through a structured human-in-the-loop editing loop.
-
----
 
 ## Demo
 
@@ -21,8 +17,6 @@ Replicating a specific creator's Instagram Reel style requires deep expertise: k
 4. Watch rough cut → scene catolog → paper edit → precision trim pipeline run
 5. In the Paper Edit step: drag to reorder one scene, type feedback, observe Soulens re-plan
 6. Confirm → render → download MP4 + FCPXML ZIP
-
----
 
 ## System Architecture
 
@@ -42,7 +36,10 @@ STYLE LEARNING
          │
          ▼  
          │
- Claude Sonnet Vision: synthesize Style Profile measurements + frames + Instagram captions → JSON (hook formula, narrative arc, pacing, caption style, signature moves, edit_recipe parameters)
+ Claude Sonnet Vision: synthesize Style Profile
+  measurements + frames + Instagram captions → JSON
+  (hook formula, narrative arc, pacing, caption style,
+  signature moves, edit_recipe parameters)
          │
          ▼
 ──────────────────────────────────────────
@@ -82,15 +79,12 @@ EDIT PIPELINE
 [Render — FFmpeg]
  Concat demuxer (constant memory, no OOM on 1080p)
  Per-segment: -r 30, aresample=async=1 (A/V sync)
- Color grade from edit_recipe
          │
          ├──▶ MP4 (direct download)
          ├──▶ FCPXML + source clips ZIP (DaVinci/FCP relink)
          └──▶ Spoken script + reel caption + hashtags
               (grounded in Phase 3 timestamps, beat-by-beat)
 ```
-
----
 
 ## AI Components
 
@@ -110,54 +104,35 @@ EDIT PIPELINE
 
 **Caption style learning:** `instagram_caption` (first 300 chars of reel description from yt-dlp metadata) is fed to Claude as a distinct input alongside speech transcripts. Claude learns to distinguish what the creator *says* from what they *write*, and the scriptwriter uses `caption_style` to generate captions that match their actual written voice.
 
----
-
 ### 2. Scene Catalog (Claude Sonnet Vision, Phase 1)
 
-**Input:** 4 frames per candidate segment at 5%, 33%, 67%, 88% of segment duration — anchored on start state and end state rather than uniformly sampled.
+**Input:** 4 frames per candidate segment at 5%, 33%, 67%, 88% of segment duration, anchored on start state and end state rather than uniformly sampled.
 
 **Output per scene:** `shot_type`, `energy`, `intent` (establishment/process/payoff/transition), `subject`, `description`, `action_complete`, `key_moment_s` (timestamp of peak visual moment, from optical flow peak as fallback).
 
-**Caching:** Results are cached by (file fingerprint + candidate timestamps + schema version). Re-uploading identical footage skips Claude entirely for Phase 1. Cache invalidates when schema changes.
+**Caching:** Results are cached by (file fingerprint + candidate timestamps + schema version).
 
-**Concurrency:** Capped at 2 clips simultaneously (Semaphore) to prevent memory spikes on the 2 GB server.
-
----
+**Concurrency:** Capped at 2 clips simultaneously (Semaphore) to prevent memory spikes on the 2 GB server (limitation to be addressed).
 
 ### 3. Paper Edit (Claude text-only, Phase 2)
 
 **Input:** Full scene catalog + style profile (hook formula, narrative arc as a preference compass, money shot, signature moves, avoid list, avg cut duration).
 
-**Output:** `hook_scene_id`, `drop` list, `duration_hints` per scene (fast/normal/breathe/long), `narrative_summary` (plain English, no scene IDs), `reasoning` (editor's rationale by subject name, not clip ID).
+**Output:** `hook`, `drop` scenes, `duration` per scene (fast/normal/breathe/long), `narrative_summary`, `reasoning` (Soulens' rationale by subject name).
 
 **Duration hints** map to multipliers in Phase 3: fast=0.7×, normal=1.0×, breathe=1.6×, long=2.2× the creator's target cut duration. This passes narrative intent from Phase 2 into Phase 3's timing decisions without Phase 3 needing to re-read the style profile.
 
-**Human refinement loop:** When a user provides text feedback, Claude re-plans with the current selection visible:
-```
-CURRENT PLAN:
-  Hook: clip_0_seg_2
-  Kept: clip_0_seg_1, clip_1_seg_0, clip_1_seg_3
-  Already dropped (keep dropped unless feedback asks to restore): clip_0_seg_0, clip_1_seg_1
-
-CREATOR FEEDBACK: "add more of the sauce pour, less of the setup"
-Make only the specific changes the feedback requests. Keep all currently kept scenes unless feedback
-explicitly says to remove one. Keep all dropped scenes dropped unless feedback explicitly says to restore one.
-```
-This prevents the AI from randomly restructuring an edit the human has already approved — only the requested change is made.
-
----
+**Human refinement loop:** Users can re-plan narrative and scene sequencing through remove/restore/reorder dropped or selected scenes. Or provide text feedback, Soulens re-plans with user input or the current selection visible. 
 
 ### 4. Precision Trim (Claude Sonnet Vision, Phase 3)
 
-**Input:** Scenes in blocks of 3 with a 1-scene context window (the last approved cut, for continuity). Each scene gets 4 frames + `key_moment_s` hint, `start_state`/`end_state`, and a `scene_target_s` derived from the Phase 2 duration hint.
+**Input:** Scenes in blocks of 3 with a 1-scene context window. Each scene gets 4 frames + `key_moment_s` hint, `start_state`/`end_state`, and a `scene_target_s` derived from the Phase 2 duration hint.
 
 **Output:** Frame-level `start_s` / `end_s` per scene with confidence score.
 
 **Fallback:** Low-confidence cuts (< 0.6) fall back to a center-cut anchored on `key_moment_s` from optical flow, never producing a silent failure.
 
-**Hook constraint:** Hook tease scenes are always capped at 2.0s regardless of narrative hint — the system enforces this structurally, not by prompt alone.
-
----
+**Hook constraint:** Hook tease scenes are always capped at 2.0s regardless of narrative hint.
 
 ### 5. Script + Caption Generation (Claude text)
 
@@ -166,8 +141,6 @@ This prevents the AI from randomly restructuring an edit the human has already a
 **Output:** Spoken hook/body/CTA script, reel caption (matched to the creator's actual `caption_style`), hashtag suggestions.
 
 **Voice matching:** Voice samples (up to 5 transcript excerpts, ≤300 chars each) are stored in the style profile and injected into the script prompt. Generic influencer phrases are blocked unless they appear in the creator's own samples.
-
----
 
 ## Human-in-the-Loop Design
 
@@ -184,9 +157,7 @@ Soulens has **3 mandatory human checkpoints** and **1 iterative refinement loop*
 - **Manual surgical moves** — drag/drop triggers a "narrative outdated" banner → user can refresh narrative summary to reflect new order
 - These are intentionally separate: text replan = AI restructures; manual move = human decides, AI catches up
 
-**Why this design:** AI is best at global optimization (which scenes tell the best story) but humans have ground truth on what footage is actually good ("that sauce pour was blurry"). The loop is designed so the human never loses their work — AI additions are always surgical, never full resets.
-
----
+**Why this design:** AI is best at global optimization (which scenes tell the best story) but humans have ground truth on what footage is actually good ("that sauce pour was blurry"). The loop is designed so the human never loses control of their own work.
 
 ## Evaluation
 
@@ -210,8 +181,6 @@ Soulens has **3 mandatory human checkpoints** and **1 iterative refinement loop*
 | **Descript** | Transcript-driven cuts | Word-level, no visual understanding |
 | **Soulens** | Style-learned + vision + human loop | Scene-level with iterative refinement |
 
----
-
 ## Stack
 
 | Layer | Technology |
@@ -226,8 +195,6 @@ Soulens has **3 mandatory human checkpoints** and **1 iterative refinement loop*
 | Auth | Supabase (Google OAuth + RLS, 5-profile limit per user) |
 | Storage | Supabase Storage (profiles, thumbnails); local disk (uploads, render outputs) |
 | Deployment | Vercel (frontend) · DigitalOcean App Platform 2 GB (backend) |
-
----
 
 ## Setup
 
@@ -257,7 +224,7 @@ cd ../frontend && npm install
 ```env
 # Required: one of these two
 ANTHROPIC_API_KEY=sk-ant-...
-OPENROUTER_API_KEY=sk-or-...        # alternative routing
+(alternative routing) OPENROUTER_API_KEY=sk-or-...
 
 # Required: Supabase service key (backend only — never expose to frontend)
 SUPABASE_URL=https://xxxx.supabase.co
@@ -295,8 +262,6 @@ cd frontend && npm run dev
 - Backend API: http://localhost:8000
 - API docs: http://localhost:8000/docs
 
----
-
 ## Project Structure
 
 ```
@@ -330,8 +295,6 @@ soulens/
         └── StyleProfileCard.tsx     # Style profile visualization
 ```
 
----
-
 ## Key Design Decisions
 
 **Rough cut is $0 (OpenCV only).** Running Claude Vision on hundreds of 0.5s windows would cost ~$5 per upload and take minutes. OpenCV blur + brightness + optical flow runs in seconds locally and eliminates the obvious garbage before any AI sees the footage.
@@ -346,12 +309,7 @@ soulens/
 
 **Surgical replan, not full reset.** When a user provides text feedback, the AI receives the full current state (hook, kept scenes, already-dropped scenes) and is explicitly instructed to change *only* what the feedback requests. This preserves prior human decisions and prevents the frustrating "AI undid my edits" experience.
 
----
-
 ## Limitations and Future Work
 
 - **Instagram rate limits** — yt-dlp occasionally hits rate limits on public profiles; adding IP rotation or caching downloaded reels would help
-- **FCPXML in DaVinci** — DaVinci Resolve doesn't support FCP-native `<title>` caption elements; captions need re-adding manually after import (video cuts relink cleanly)
 - **2 GB RAM constraint** — 1080p clips >10 minutes would benefit from GPU transcoding on a larger instance
-- **Style transfer for color** — current color grade is parameter-based (brightness/contrast/saturation); a neural style transfer pass would more faithfully replicate LUTs
-- **Multi-creator blending** — the current system maps one profile to one edit; interpolating between two profiles ("60% creator A, 40% creator B") is a natural extension
