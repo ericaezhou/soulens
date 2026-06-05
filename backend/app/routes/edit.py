@@ -295,6 +295,25 @@ async def download_fcpxml(job_id: str):
     return _download_file(job_id, "fcpxml_path", "application/xml", f"auto-edit-{job_id[:8]}.fcpxml")
 
 
+@router.get("/download/{job_id}/project")
+async def download_project_zip(job_id: str):
+    """Download project ZIP (FCPXML + source clips) for DaVinci/FCP import."""
+    # Try Supabase URL first, then fall back to server file
+    state = _get_completed_state(job_id)
+    result = state.get("result", {})
+    zip_url = result.get("zip_url")
+    if zip_url:
+        filename = result.get("zip_filename", f"auto-edit-{job_id[:8]}_project.zip")
+        download_url = zip_url if "?" in zip_url else f"{zip_url}?download={filename}"
+        return RedirectResponse(download_url)
+    # Fall back to local file on server
+    zip_path = result.get("zip_path") or str(UPLOAD_DIR / job_id / f"{Path(result.get('mp4_filename', 'edit')).stem}_project.zip")
+    if zip_path and Path(zip_path).exists():
+        return FileResponse(zip_path, media_type="application/zip",
+                           filename=f"auto-edit-{job_id[:8]}_project.zip")
+    raise HTTPException(404, "Project ZIP not found — please re-run the edit")
+
+
 @router.get("/download/{job_id}/srt")
 async def download_srt(job_id: str):
     return _download_file(job_id, "srt_path", "text/plain", f"captions-{job_id[:8]}.srt")

@@ -333,6 +333,7 @@ export async function getServerStartTime(): Promise<number> {
 }
 
 export function mediaUrl(path: string) { return `${API}${path}`; }
+export function projectZipUrl(jobId: string) { return `${API}/edit/download/${jobId}/project`; }
 export function videoDownloadUrl(jobId: string) { return `${API}/edit/download/${jobId}/video`; }
 export function fcpxmlDownloadUrl(jobId: string) { return `${API}/edit/download/${jobId}/fcpxml`; }
 export function scriptDownloadUrl(jobId: string) { return `${API}/edit/download/${jobId}/script`; }

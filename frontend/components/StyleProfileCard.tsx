@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { StyleProfile } from "@/lib/api";
-import { Sparkles, Zap, Camera, Clapperboard, ListChecks, ChevronDown } from "lucide-react";
+import { Sparkles, Zap, Camera, Clapperboard, ListChecks, ChevronDown, MessageSquare } from "lucide-react";
 
 interface Props {
   profile: StyleProfile;
@@ -80,7 +80,7 @@ export default function StyleProfileCard({ profile, onStartEdit }: Props) {
             </span>
           </div>
 
-          <h1 className="text-4xl md:text-4xl font-bold gradient-text leading-tight"
+          <h1 className="text-4xl md:text-3xl font-bold gradient-text leading-tight"
             style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}>
             {s.style_name || "Your Style"}
           </h1>
@@ -92,7 +92,7 @@ export default function StyleProfileCard({ profile, onStartEdit }: Props) {
             </p>
           )}
 
-          <div className="border-t pt-4" style={{ borderColor: "var(--border)" }}>
+          <div className="">
             <div className="flex items-center justify-center gap-8">
               <Stat value={String(profile.reels_analyzed)} label="Reels analyzed" />
               <div className="w-px h-8" style={{ background: "var(--border)" }} />
@@ -116,27 +116,14 @@ export default function StyleProfileCard({ profile, onStartEdit }: Props) {
         <Section icon={<Clapperboard size={13} />} label="Content Narrative">
           <p className="text-sm leading-relaxed">{narrative.description}</p>
           {narrative.sequence && narrative.sequence.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 pt-1">
+            <ol className="space-y-2 pt-1">
               {narrative.sequence.map((step: string, i: number) => (
-                <span key={i} className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full"
-                  style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-                  <span className="font-mono font-semibold text-[var(--accent)]">{i + 1}</span>
-                  {step}
-                </span>
+                <li key={i} className="flex gap-2 text-xs">
+                  <span className="shrink-0 font-semibold tabular-nums" style={{ color: "var(--accent)", minWidth: "12px" }}>{i + 1}.</span>
+                  <span className="text-[var(--text-muted)] leading_relaxed">{step}</span>
+                </li>
               ))}
-            </div>
-          )}
-          {climaxValue && (
-            <p className="text-xs pt-1 text-[var(--text-muted)]">
-              <span className="font-medium text-[var(--accent)]">{climaxLabel}: </span>
-              {climaxValue}
-            </p>
-          )}
-          {narrative.what_they_skip && (
-            <p className="text-xs text-[var(--text-muted)]">
-              <span className="font-medium text-[var(--accent)]">Skips: </span>
-              {narrative.what_they_skip}
-            </p>
+            </ol>
           )}
         </Section>
       )}
@@ -150,9 +137,8 @@ export default function StyleProfileCard({ profile, onStartEdit }: Props) {
               ["Camera", s.visual_identity.camera_work],
               ["Transitions", s.visual_identity.transition_style],
             ] as [string, string | undefined][]).filter(([, v]) => v).map(([label, value]) => (
-              <div key={label} className="flex gap-3 text-xs"
-                style={{ borderBottom: "1px solid var(--border)", paddingBottom: "8px" }}>
-                <span className="font-semibold uppercase tracking-wider text-[var(--text-muted)] shrink-0 w-24">{label}</span>
+              <div key={label} className="flex gap-5 text-xs">
+                <span className="font-semibold tracking-wider text-[var(--text-muted)] shrink-0 w-24">{label}</span>
                 <span className="leading-relaxed">{value}</span>
               </div>
             ))}
@@ -171,6 +157,37 @@ export default function StyleProfileCard({ profile, onStartEdit }: Props) {
               </li>
             ))}
           </ul>
+        </Section>
+      )}
+
+      {/* Caption Style */}
+      {s.caption_style && (s.caption_style.structure || (s.caption_style.example_lines?.length ?? 0) > 0) && (
+        <Section icon={<MessageSquare size={13} />} label="Caption Style">
+          {s.caption_style.structure && (
+            <p className="text-sm leading-relaxed">{s.caption_style.structure}</p>
+          )}
+          {s.caption_style.emoji_usage && (
+            <p className="text-xs text-[var(--text-muted)]">
+              <span className="font-medium text-[var(--accent)]">Emojis: </span>
+              {s.caption_style.emoji_usage}
+            </p>
+          )}
+          {s.caption_style.cta_style && (
+            <p className="text-xs text-[var(--text-muted)]">
+              <span className="font-medium text-[var(--accent)]">CTA: </span>
+              {s.caption_style.cta_style}
+            </p>
+          )}
+          {s.caption_style.example_lines && s.caption_style.example_lines.length > 0 && (
+            <div className="space-y-1.5 pt-1">
+              <p className="text-xs text-[var(--text-muted)]">Examples from her captions:</p>
+              {s.caption_style.example_lines.map((line: string, i: number) => (
+                <p key={i} className="text-xs italic pl-3 border-l-2" style={{ borderColor: "var(--accent)", color: "var(--text-muted)" }}>
+                  &ldquo;{line}&rdquo;
+                </p>
+              ))}
+            </div>
+          )}
         </Section>
       )}
 

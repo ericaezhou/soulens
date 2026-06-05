@@ -5,7 +5,7 @@ import { Upload, Download, FileText, Film, Sparkles, X, Trash2, RotateCcw, Chevr
 import {
   uploadFootage, startEdit, getEditState, poll,
   proceedEdit, confirmScenes, finalizeEdit, replanEdit, getServerStartTime,
-  mediaUrl, videoDownloadUrl, fcpxmlDownloadUrl, scriptDownloadUrl,
+  mediaUrl, videoDownloadUrl, fcpxmlDownloadUrl, scriptDownloadUrl, projectZipUrl,
   EditState, RoughCutSummary, ManifestV2, DetailedCut, StyleProfile, SceneCard,
 } from "@/lib/api";
 
@@ -464,14 +464,8 @@ function PaperEditReview({
   const hookScene = manifest.scenes.find(s => s.scene_id.endsWith("_hook"));
   const activeScenes = orderedScenes.filter(s => !dropped.has(s.scene_id));
   const totalDur = activeScenes.reduce((s, sc) => s + sc.duration_s, 0);
-
-  // Derived: narrative is outdated if current selection/order differs from original manifest
-  const originalIds = manifest.scenes.map(s => s.scene_id).join(",");
-  const currentIds = [
-    ...(hookScene ? [hookScene.scene_id] : []),
-    ...activeScenes.map(s => s.scene_id),
-  ];
-  const narrativeOutdated = currentIds.join(",") !== originalIds;
+  // Explicit flag: only true after user manually reorders/drops/restores — not after text replan
+  const [hasManualChanges, setHasManualChanges] = useState(false);
 
   const toggle = (scene_id: string) => {
     setDropped(prev => {
@@ -479,6 +473,7 @@ function PaperEditReview({
       next.has(scene_id) ? next.delete(scene_id) : next.add(scene_id);
       return next;
     });
+    setHasManualChanges(true);
   };
 
   // Fix bug 2: restore updates local orderedScenes directly (not via parent manifest)
@@ -492,6 +487,7 @@ function PaperEditReview({
       dropped_scenes: manifest.dropped_scenes?.filter(s => s.scene_id !== scene.scene_id),
       dropped_scene_count: Math.max(0, (manifest.dropped_scene_count || 1) - 1),
     });
+    setHasManualChanges(true);
   };
 
   const handleReplan = async () => {
@@ -505,7 +501,11 @@ function PaperEditReview({
     try {
       const updated = await replanEdit(jobId, feedback, currentIds);
       onManifestUpdate(updated);
+      // Reset scene order and drops to match the new AI plan
+      setOrderedScenes(updated.scenes.filter((s: SceneCard) => !s.scene_id.endsWith("_hook")));
       setDropped(new Set());
+      setFeedback("");
+      setHasManualChanges(false);
     } catch (e) {
       setReplanError(e instanceof Error ? e.message : "Re-plan failed");
     } finally {
@@ -540,35 +540,27 @@ function PaperEditReview({
           </div>
         )}
 
-        {/* Show feedback used — only when it's a real user direction, not the internal refresh prompt */}
-        {manifest.feedback_used && !manifest.feedback_used.startsWith("Regenerate the narrative") && (
-          <p className="text-xs italic" style={{ color: "var(--accent)" }}>
-            Re-planned based on: &ldquo;{manifest.feedback_used}&rdquo;
-          </p>
-        )}
-
-        {/* Bug 3: narrative outdated banner */}
-        {narrativeOutdated && (
+        {hasManualChanges && (
           <div className="flex items-center justify-between text-xs rounded-lg px-3 py-2"
             style={{ background: "rgba(var(--accent-rgb), 0.08)", color: "var(--accent)" }}>
-            <span>Refresh narrative to match your changes</span>
+            <span>Update narrative to reflect changes</span>
             <button
               onClick={async () => {
                 setRefreshing(true);
-                const currentIds = [
+                const refreshIds = [
                   ...(hookScene ? [hookScene.scene_id] : []),
                   ...activeScenes.map(s => s.scene_id),
                 ];
                 try {
-                  const updated = await replanEdit(jobId, "Regenerate the narrative summary and duration hints for the current scene selection.", currentIds);
+                  const updated = await replanEdit(jobId, "Regenerate the narrative summary and duration hints for the current scene selection.", refreshIds);
                   onManifestUpdate(updated);
-
+                  setHasManualChanges(false);
                 } catch { /* ignore */ } finally { setRefreshing(false); }
               }}
               disabled={refreshing}
-              className="ml-3 shrink-0 font-medium underline disabled:opacity-50"
+              className="underline disabled:opacity-50 shrink-0 ml-3"
             >
-              {refreshing ? "Refreshing…" : "Refresh"}
+              {refreshing ? "Updating" : "Update"}
             </button>
           </div>
         )}
@@ -629,7 +621,7 @@ function PaperEditReview({
           })()}
 
           {/* Body scenes — drag to reorder */}
-          <Reorder.Group axis="y" values={orderedScenes} onReorder={setOrderedScenes} className="space-y-2">
+          <Reorder.Group axis="y" values={orderedScenes} onReorder={(v) => { setOrderedScenes(v); setHasManualChanges(true); }} className="space-y-2">
             {orderedScenes.map((scene) => {
               const isDropped = dropped.has(scene.scene_id);
               const energyColor = scene.energy === "high" ? "bg-green-400" : scene.energy === "medium" ? "bg-yellow-400" : "bg-[var(--text-muted)]";
@@ -851,17 +843,10 @@ function EditResult({ result, jobId, onReset }: { result: NonNullable<EditState[
             className="btn-primary flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium">
             <Film size={15} /> Download MP4
           </a>
-          {result.zip_url ? (
-            <a href={`${result.zip_url}?download=${result.zip_filename}`}
-              className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium glass">
-              <Download size={15} /> DaVinci / Final Cut (ZIP)
-            </a>
-          ) : (
-            <a href={fcpxmlDownloadUrl(jobId)} download
-              className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium glass">
-              <Download size={15} /> FCPXml
-            </a>
-          )}
+          <a href={projectZipUrl(jobId)}
+            className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium glass">
+            <Download size={15} /> DaVinci / Final Cut (ZIP)
+          </a>
           <a href={scriptDownloadUrl(jobId)} download
             className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium glass">
             <FileText size={15} /> Script
