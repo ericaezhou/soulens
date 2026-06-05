@@ -1,8 +1,6 @@
 # Soulens
 
-**AI video editor that learns an Instagram creator's editing style, then edits your raw footage to match — with the human in control at every step.**
-
-Built for Stanford CS 153 · Spring 2026
+**AI video editor that learns a creator's editing style, then edits your raw footage to match, with the human in control at every step.**
 
 ---
 
@@ -14,14 +12,14 @@ Replicating a specific creator's Instagram Reel style requires deep expertise: k
 
 ## Demo
 
-[Live app](https://soulens.vercel.app) · [Demo video](#)
+[Live app](https://soulens.vercel.app) · [Demo video](https://drive.google.com/drive/folders/1_WmKIADaj0SmqGBk9VNaGBFbsVaEnAih?usp=share_link)
 
 **Quick demo path:**
-1. Select a pre-analyzed creator profile (e.g. `@seonkyounglongest`)
-2. Upload 2–3 raw cooking clips
-3. Enter a topic (e.g. "Korean BBQ short rib")
-4. Watch rough cut → paper edit → precision trim pipeline run
-5. In the Paper Edit step: drag to reorder one scene, type feedback ("focus more on the sauce pour"), observe AI re-plan
+1. Upload several Instagram Reels links
+2. Generate a Style Profile that analyze the creator's unique style
+3. Upload your own raw footage
+4. Watch rough cut → scene catolog → paper edit → precision trim pipeline run
+5. In the Paper Edit step: drag to reorder one scene, type feedback, observe Soulens re-plan
 6. Confirm → render → download MP4 + FCPXML ZIP
 
 ---
@@ -29,11 +27,11 @@ Replicating a specific creator's Instagram Reel style requires deep expertise: k
 ## System Architecture
 
 ```
-[Instagram profile URL + reel URLs]
+[Instagram profile handle or reel URLs]
          │
          ▼
 ──────────────────────────────────────────
-STYLE LEARNING  (one-time per creator)
+STYLE LEARNING
 ──────────────────────────────────────────
  yt-dlp / instaloader: download reels + captions
  Per-reel analysis (parallel):
@@ -42,21 +40,18 @@ STYLE LEARNING  (one-time per creator)
    • librosa: BPM + beat positions
    • frame sampling: key visual frames
          │
-         ▼  [synthesis gate — user triggers]
+         ▼  
          │
- Claude Sonnet Vision: synthesize Style Profile
-   measurements + frames + Instagram captions → JSON
-   (hook formula, narrative arc, pacing, caption style,
-    signature moves, edit_recipe parameters)
+ Claude Sonnet Vision: synthesize Style Profile measurements + frames + Instagram captions → JSON (hook formula, narrative arc, pacing, caption style, signature moves, edit_recipe parameters)
          │
          ▼
 ──────────────────────────────────────────
-EDIT PIPELINE  (per footage upload)
+EDIT PIPELINE
 ──────────────────────────────────────────
- User uploads raw clips + topic
+ User uploads raw clips
          │
          ▼
-[Phase 0: Rough Cut — OpenCV/numpy, $0]
+[Phase 0: Rough Cut — OpenCV/numpy, no API call]
  Per 0.5s window: blur, brightness, shake, flash
  Global motion threshold via median-of-medians
  Output: candidate segments + rejection summary
