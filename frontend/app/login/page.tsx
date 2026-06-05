@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { Sparkles, ChevronDown, Check } from "lucide-react";
+import { ChevronDown, Check } from "lucide-react";
 
 // ── FAQ ───────────────────────────────────────────────────────────────────────
 
@@ -183,12 +183,9 @@ export default function LoginPage() {
       <div className="sticky top-0 z-50 flex justify-center px-4 pt-4">
         <nav className="w-full max-w-3xl flex items-center gap-6 px-4 py-2.5 rounded-full"
           style={{ background: "rgba(255,255,255,0.88)", backdropFilter: "blur(12px)", border: "1px solid var(--border)", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
-          <div className="flex items-center gap-2 mr-2">
-            <div className="w-6 h-6 rounded-md flex items-center justify-center gradient-accent shrink-0">
-              <Sparkles size={11} className="text-white" />
-            </div>
-            <span className="font-semibold text-sm tracking-tight">Soulens</span>
-          </div>
+          <span className="text-xl gradient-text mr-2" style={{ fontFamily: "var(--font-brand)" }}>
+            Soulens
+          </span>
           <div className="flex items-center gap-5 flex-1">
             <a href="#how-it-works" className="text-sm hover:text-[var(--text)] transition-colors" style={{ color: "var(--text-muted)" }}>How It Works</a>
             <a href="#faq" className="text-sm hover:text-[var(--text)] transition-colors" style={{ color: "var(--text-muted)" }}>FAQ</a>
@@ -208,7 +205,9 @@ export default function LoginPage() {
             <span style={{ background: "linear-gradient(135deg, var(--accent), var(--accent-2))", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
               Your style,
             </span>{" "}
-            <em style={{ fontStyle: "italic", color: "var(--text)" }}>Soulens edit.</em>
+            <em style={{ fontStyle: "italic", color: "var(--text)" }}>
+              <span style={{ fontFamily: "var(--font-brand)", fontStyle: "normal", fontWeight: 400 }}>Soulens</span>{" "}edit.
+            </em>
           </h1>
           <p className="text-base md:text-lg max-w-md mx-auto leading-relaxed" style={{ color: "var(--text-muted)" }}>
             Connect any Instagram style. Upload raw footage.
