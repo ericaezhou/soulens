@@ -1,14 +1,14 @@
 # Soulens
 
-**AI video lab that learns a creator's editing style, then edits your raw footage to match — with human in control at every step.**
+**AI video lab that learns a creator's editing style, then edits your raw footage to match, with human in control at every step.**
 
 [Live app](https://soulens.vercel.app) · [Demo video](https://drive.google.com/drive/folders/1_WmKIADaj0SmqGBk9VNaGBFbsVaEnAih?usp=share_link)
 
 ## Problem & Motivation
 
-Most AI video tools generate content from generic templates. They save time but strip away what makes a creator's content uniquely theirs. I spoke with creators across content niches who all described editing as most time-consuming.
+Most AI video tools generate content from generic templates. They save time but strip away what makes a creator's content uniquely theirs. I spoke with creators across content niches who all described editing as the most time-consuming.
 
-The insight: a creator's editing style (hook formula, narrative arc, pacing rhythm, caption voice, etc.) is a learnable pattern, all visible in their published work. Soulens extracts that pattern from existing reels and applies it to new footage, while keeping the human in control of every editorial decision.
+**The insight:** a creator's editing style (hook formula, narrative arc, pacing rhythm, caption voice, etc.) is a learnable pattern, all visible in their published work. Soulens extracts that pattern from existing reels and applies it to new footage, while keeping the human in control of every editorial decision.
 
 ## What Makes This Different
 
