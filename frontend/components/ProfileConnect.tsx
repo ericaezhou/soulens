@@ -33,6 +33,7 @@ function timeAgo(iso: string): string {
 export default function ProfileConnect({ onSubmit, loading, error }: Props) {
   const [tab, setTab] = useState<"handle" | "paste" | "saved">("saved");
   const [url, setUrl] = useState("");
+  const [handleError, setHandleError] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const [profileName, setProfileName] = useState("");
   const [conflict, setConflict] = useState<SavedProfile | null>(null);
@@ -129,26 +130,33 @@ export default function ProfileConnect({ onSubmit, loading, error }: Props) {
       </div>
 
       {tab === "handle" && (
-        <form onSubmit={(e) => { e.preventDefault(); if (url.trim()) onSubmit(url.trim()); }}>
-          <div className="relative">
+        <form onSubmit={(e) => { e.preventDefault(); if (url.trim()) setHandleError(true); }}>
+          <div className="space-y-2">
             <div className="flex items-center glass rounded-2xl p-1.5 gap-2">
               <span className="pl-4 text-[var(--text-muted)] text-sm shrink-0">@</span>
               <input
                 type="text"
                 value={url}
-                onChange={(e) => setUrl(e.target.value)}
+                onChange={(e) => { setUrl(e.target.value); setHandleError(false); }}
                 placeholder="yourhandle"
                 className="flex-1 bg-transparent text-[var(--text)] placeholder:text-[var(--text-muted)] outline-none text-sm py-3"
-                disabled={loading}
               />
               <button
                 type="submit"
-                disabled={!url.trim() || loading}
+                disabled={!url.trim()}
                 className="btn-primary flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
               >
-                {loading ? <Loader2 size={14} className="animate-spin" /> : <><span>Analyze</span><ArrowRight size={14} /></>}
+                <span>Analyze</span><ArrowRight size={14} />
               </button>
             </div>
+            {handleError && (
+              <p className="text-xs px-1 text-red-400">
+                Apologies! Auto-discovery via handle is currently unavailable due to Instagram API limits.{" "}
+                <button type="button" onClick={() => { setTab("paste"); setHandleError(false); }} className="underline">
+                  Please paste reel links
+                </button>{" "}
+              </p>
+            )}
           </div>
         </form>
       )}
